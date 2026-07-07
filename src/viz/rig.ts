@@ -58,7 +58,9 @@ const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => [
 function hand(palm: Vec3, fingerDir: Vec3, stackDir: Vec3, thumbSide: Vec3): HandPose {
   const digits = {} as Record<Digit, FingerPose>;
   DIGITS.forEach((digit, i) => {
-    const stack = 0.048 - i * 0.032; // index +0.048 … pinky -0.048
+    // Spacing must exceed the finger diameter (2 × FINGER_RADIUS) or the
+    // capsules clip into each other.
+    const stack = (1.5 - i) * 0.056; // index +0.084 … pinky -0.084
     const base: Vec3 = [
       palm[0] + fingerDir[0] * 0.045 + stackDir[0] * stack,
       palm[1] + fingerDir[1] * 0.045 + stackDir[1] * stack,
