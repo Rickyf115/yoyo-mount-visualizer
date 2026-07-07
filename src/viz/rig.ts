@@ -74,9 +74,9 @@ function hand(palm: Vec3, fingerDir: Vec3, stackDir: Vec3, thumbSide: Vec3): Han
     digits[digit] = { base, tip };
   });
   const thumbBase: Vec3 = [
-    palm[0] + thumbSide[0] * 0.05,
-    palm[1] - 0.02,
-    palm[2] + thumbSide[2] * 0.05 + fingerDir[2] * 0.02,
+    palm[0] + thumbSide[0] * 0.055,
+    palm[1] + 0.02,
+    palm[2] + thumbSide[2] * 0.055 + fingerDir[2] * 0.02,
   ];
   const thumb: FingerPose = {
     base: thumbBase,
