@@ -1,4 +1,4 @@
-import { mountHash } from "./canonical.js";
+import { mountHash } from "./hash.js";
 import type { Mount, NameEntry, NameRegistry } from "./schema.js";
 
 /**

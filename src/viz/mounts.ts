@@ -1,3 +1,4 @@
+import { canonicalSerialize } from "../core/canonical.js";
 import { Mount } from "../core/schema.js";
 
 /**
@@ -20,4 +21,21 @@ export function mountById(id: string): Mount {
   const mount = MOUNTS.find((m) => m.id === id);
   if (!mount) throw new Error(`unknown mount fixture "${id}"`);
   return mount;
+}
+
+/**
+ * Topological name lookup, browser-side: element-produced mounts are
+ * recognized by canonical serialization (no crypto needed), so applying
+ * mount to a breakaway dead string displays as "trapeze".
+ */
+const NAME_BY_CANONICAL = new Map(MOUNTS.map((m) => [canonicalSerialize(m), m.name ?? m.id]));
+
+export function displayName(mount: Mount): string {
+  return NAME_BY_CANONICAL.get(canonicalSerialize(mount)) ?? "unnamed mount";
+}
+
+/** The fixture topologically equal to this mount, if any. */
+export function fixtureTwin(mount: Mount): Mount | undefined {
+  const serial = canonicalSerialize(mount);
+  return MOUNTS.find((m) => canonicalSerialize(m) === serial);
 }

@@ -2,7 +2,7 @@
 
 String Trick Engine: model yo-yo string mounts topologically, visualize them in 3D, animate transitions, and eventually discover new tricks via pathfinding over the mount graph. See [ROADMAP.md](./ROADMAP.md) for the full plan; this repo is built one session at a time.
 
-**Status:** Session 2 complete — core schema + canonical mounts (Session 1) and the static 3D visualizer.
+**Status:** Session 3 complete — core schema + canonical mounts, the 3D visualizer, and elements with animated transitions.
 
 **Scope assumption:** everything models **1A** — a single unresponsive yo-yo with the string attached to the throwhand. Other styles (5A counterweight, 3A, 4A offstring, responsive 2A) are future work; see `IDEAS.md`.
 
@@ -14,9 +14,24 @@ pnpm typecheck   # tsc --noEmit
 pnpm hashes      # print canonical hashes of all mount fixtures
 ```
 
+## Elements and transitions
+
+Elements ([`src/core/elements.ts`](./src/core/elements.ts)) are the labeled edges of the mount multigraph: named operations `Mount → Mount` with legality **preconditions** (a machine-checkable reason-or-null). `applyElement` enforces the precondition and re-validates the result through the schema. The Session 3 set:
+
+- **`mount`** — bare string → yo-yo lands on the strand over the non-throwhand index. One element serves both graph halves: side spin lands the *trapeze*, front spin the *front mount*.
+- **`pass over <finger>`** — carry the string's tail over a finger/thumb, adding a wrap before the axle. Two passes take a trapeze to *double or nothing* (via the physically honest mid-swing state); passing the throwhand **thumb** instead lands the *houdini mount*.
+- **`hop`** — the yo-yo hops over the next anchor onto the following strand.
+- **`dismount`** — drop every wrap; back to a bare spinning string.
+
+**Throws are entry points, not elements** (`THROWS`): a front throw enters the front-spin half of the graph, a breakaway the side-spin half, each as a spinning dead string. Elements never change spin — only future regeneration elements will cross the halves.
+
+Every element result is checked against the fixture set by canonical hash in tests: `mount(breakaway) ≡ trapeze`, `pass(R index) ∘ pass(L index)(trapeze) ≡ double or nothing`, `dismount(trapeze) ≡ breakaway dead string`, and so on.
+
 ## The visualizer
 
 `pnpm dev` serves a react-three-fiber scene that renders any fixture mount: stylized hands, a yo-yo, and the string as a Catmull-Rom tube through control points derived by the first-pass `Layout` function ([`src/viz/layout.ts`](./src/viz/layout.ts)). Camera presets — **audience** (front), **player** (behind), **side** — are hot-switchable, with free orbit always on.
+
+The **timeline bar** drives transitions: throw buttons enter the graph (front throw / breakaway), element buttons show only the elements whose preconditions pass for the current mount and enqueue their results, and a play/pause + scrubber controls the animation — the string morphs between the two layouts (uniformly resampled splines, point-lerped) with the traversal readout switching at the halfway beat. Element-produced mounts are recognized topologically (canonical serialization, no hashing needed in the browser), so mounting from a breakaway displays as "trapeze". The demo button plays trapeze → double or nothing through the mid-swing pass.
 
 The geometry side lives in [`src/viz/rig.ts`](./src/viz/rig.ts): the player stands at the origin facing +z (the audience), and each spin has a default rig — side spin spreads the hands left/right with the string plane facing the audience; front spin reaches the non-throwhand forward with the string plane running toward the audience. Fingers are segments pointing along the string-plane normal (that's what lets string wrap *around* them), and contacts sit at knuckle-relative points: the slipknot rides the middle finger near the middle knuckle, wraps sit out toward the fingertip.
 
@@ -96,13 +111,13 @@ The ten staple mounts (dead string, trapeze, front mount, brother, 1.5, double o
 ## Repo layout
 
 ```
-src/core/     schema, canonicalization, name registry, fixture loading
+src/core/     schema, canonicalization, hashing, elements, name registry, fixture loading
 src/viz/      rig + Layout (pure, tested) and the react-three-fiber app
 data/mounts/  one JSON fixture per mount
 data/tricks/  trick fixtures (mount paths)
 data/names.json  name registry keyed by canonical hash
-test/         vitest suites: validation, canonical equality, hash stability, fixtures, layout
+test/         vitest suites: validation, canonical equality, hash stability, fixtures, layout, elements
 scripts/      dev utilities (print-hashes)
 ```
 
-`sim/` and `search/` modules arrive in later sessions. Browser code must not import node-only modules (`src/core/fixtures.ts` reads the filesystem, `src/core/canonical.ts` uses `node:crypto`); the app loads fixtures via Vite glob imports in `src/viz/mounts.ts` instead.
+`sim/` and `search/` modules arrive in later sessions. Browser code must not import node-only modules (`src/core/fixtures.ts` reads the filesystem, `src/core/hash.ts` uses `node:crypto`); the app loads fixtures via Vite glob imports in `src/viz/mounts.ts` and compares mounts by `canonicalSerialize` instead of hash.

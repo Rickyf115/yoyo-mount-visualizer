@@ -88,14 +88,10 @@ function YoYo({ pose }: { pose: YoYoPose }) {
   );
 }
 
-function StringTube({ points }: { points: Vec3[] }) {
+function StringTube({ points }: { points: Vector3[] }) {
   const geometry = useMemo(() => {
     // Centripetal parameterization keeps the tight wrap arcs from overshooting.
-    const curve = new CatmullRomCurve3(
-      points.map((p) => new Vector3(...p)),
-      false,
-      "centripetal",
-    );
+    const curve = new CatmullRomCurve3(points, false, "centripetal");
     return new TubeGeometry(curve, 512, 0.0055, 8, false);
   }, [points]);
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -106,9 +102,54 @@ function StringTube({ points }: { points: Vec3[] }) {
   );
 }
 
-export function Scene({ mount, preset }: { mount: Mount; preset: CameraPresetName }) {
+const SAMPLES = 200;
+const smoothstep = (t: number) => t * t * (3 - 2 * t);
+
+/** Uniformly resample a layout's spline so two topologies can be point-lerped. */
+function sampleString(points: Vec3[]): Vector3[] {
+  const curve = new CatmullRomCurve3(
+    points.map((p) => new Vector3(...p)),
+    false,
+    "centripetal",
+  );
+  return curve.getSpacedPoints(SAMPLES);
+}
+
+export interface SceneProps {
+  mount: Mount;
+  /** Transition target; when set, the string morphs mount → target at `t`. */
+  target?: Mount | undefined;
+  /** Transition progress 0..1. */
+  t?: number;
+  preset: CameraPresetName;
+}
+
+export function Scene({ mount, target, t = 0, preset }: SceneProps) {
+  // Elements never change spin, so one rig serves both ends of a transition.
   const rig: Rig = defaultRig(mount.spin);
   const layout = useMemo(() => layoutMount(mount, rig), [mount, rig]);
+  const targetLayout = useMemo(
+    () => (target ? layoutMount(target, rig) : null),
+    [target, rig],
+  );
+
+  const { stringPoints, yoyo } = useMemo(() => {
+    const a = sampleString(layout.controlPoints);
+    if (!targetLayout) return { stringPoints: a, yoyo: layout.yoyo };
+    const b = sampleString(targetLayout.controlPoints);
+    const k = smoothstep(Math.min(Math.max(t, 0), 1));
+    const [c0, c1] = [layout.yoyo.center, targetLayout.yoyo.center];
+    const center: Vec3 = [
+      c0[0] + (c1[0] - c0[0]) * k,
+      c0[1] + (c1[1] - c0[1]) * k,
+      c0[2] + (c1[2] - c0[2]) * k,
+    ];
+    return {
+      stringPoints: a.map((p, i) => p.clone().lerp(b[i]!, k)),
+      yoyo: { center, axis: layout.yoyo.axis },
+    };
+  }, [layout, targetLayout, t]);
+
   return (
     <Canvas camera={{ fov: 45, position: [...CAMERA_PRESETS.audience.position] }}>
       <color attach="background" args={["#15181d"]} />
@@ -117,8 +158,8 @@ export function Scene({ mount, preset }: { mount: Mount; preset: CameraPresetNam
       <directionalLight position={[-3, 2, -2]} intensity={0.4} />
       <Hand pose={rig.hands.R} label="R" />
       <Hand pose={rig.hands.L} label="L" />
-      <YoYo pose={layout.yoyo} />
-      <StringTube points={layout.controlPoints} />
+      <YoYo pose={yoyo} />
+      <StringTube points={stringPoints} />
       <Grid
         position={[0, 0, 0]}
         args={[8, 8]}
