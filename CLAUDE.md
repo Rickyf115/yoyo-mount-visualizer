@@ -6,10 +6,12 @@ Read [ROADMAP.md](./ROADMAP.md) before doing anything. This project is built one
 
 - **Session 1 (core schema & canonical mounts): DONE.** Zod schemas, canonicalization + sha256 identity, 10 staple mount fixtures (incl. houdini and front mount), name registry with the brother/undermount alias, Cascade trick skeleton, 55 tests green. Identity includes finger digits and spin (front vs side) per owner direction; throws are graph entry points, not mount properties.
 - **Scope assumption: 1A only** — single unresponsive yo-yo, string on the throwhand. Other styles are logged in `IDEAS.md`, not modeled.
-- **Next up: Session 2 (static visualizer).** Vite + react-three-fiber app, first-pass `Layout(Mount, Rig) -> ControlPoint[]`, three camera presets, fixture dropdown.
+- **Session 2 (static visualizer): DONE.** Vite + react-three-fiber app (`pnpm dev`): stylized hands, yo-yo, Catmull-Rom string tube through control points from the first-pass `layoutMount(Mount, Rig)` in `src/viz/layout.ts` (pure + unit tested); per-spin default rigs in `src/viz/rig.ts` (player at origin facing +z/audience); camera presets audience/player/side plus free orbit; fixture dropdown with traversal breadcrumb. 63 tests green.
+- **Next up: Session 3 (transitions & timeline).** `Element` abstraction with preconditions, 3–4 elements (mount/hop/pass/dismount) plus throw entry edges (front throw → front half, breakaway → side half), animated transitions with play/pause + scrubber.
 
 ## Commands
 
+- `pnpm dev` — mount visualizer (Vite dev server); `pnpm build` / `pnpm preview` for production.
 - `pnpm test` — vitest suite. Must be green before every commit.
 - `pnpm typecheck` — strict tsc, no emit.
 - `pnpm hashes` — print canonical hashes of all mount fixtures (as name-registry JSON).
@@ -17,7 +19,8 @@ Read [ROADMAP.md](./ROADMAP.md) before doing anything. This project is built one
 ## Conventions
 
 - TypeScript ESM everywhere; imports use `.js` extensions (`import ... from "./schema.js"`). Strict tsconfig with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` — keep it that way.
-- Modules by concern: `src/core/` (done), later `src/viz/`, `src/sim/`, `src/search/`. Fixtures live in `data/`, dev utilities in `scripts/`, tests in `test/`.
+- Modules by concern: `src/core/` and `src/viz/` (done), later `src/sim/`, `src/search/`. Fixtures live in `data/`, dev utilities in `scripts/`, tests in `test/`.
+- Browser code must not import node-only modules: `src/core/fixtures.ts` (fs) and `src/core/canonical.ts` (node:crypto) stay server/test-side; the app loads fixtures via Vite glob imports in `src/viz/mounts.ts`. Keep `layoutMount` pure (no three.js/React imports) so it stays unit-testable.
 - Zod schemas are the source of truth for types (`type X = z.infer<typeof X>`); topological well-formedness is enforced in `superRefine`, not in downstream code.
 
 ## Data model invariants (do not break silently)

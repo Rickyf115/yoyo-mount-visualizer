@@ -2,16 +2,25 @@
 
 String Trick Engine: model yo-yo string mounts topologically, visualize them in 3D, animate transitions, and eventually discover new tricks via pathfinding over the mount graph. See [ROADMAP.md](./ROADMAP.md) for the full plan; this repo is built one session at a time.
 
-**Status:** Session 1 complete — core schema, canonicalization, and fixture mounts.
+**Status:** Session 2 complete — core schema + canonical mounts (Session 1) and the static 3D visualizer.
 
 **Scope assumption:** everything models **1A** — a single unresponsive yo-yo with the string attached to the throwhand. Other styles (5A counterweight, 3A, 4A offstring, responsive 2A) are future work; see `IDEAS.md`.
 
 ```sh
 pnpm install
+pnpm dev         # mount visualizer (Vite dev server)
 pnpm test        # vitest suite
 pnpm typecheck   # tsc --noEmit
 pnpm hashes      # print canonical hashes of all mount fixtures
 ```
+
+## The visualizer
+
+`pnpm dev` serves a react-three-fiber scene that renders any fixture mount: stylized hands, a yo-yo, and the string as a Catmull-Rom tube through control points derived by the first-pass `Layout` function ([`src/viz/layout.ts`](./src/viz/layout.ts)). Camera presets — **audience** (front), **player** (behind), **side** — are hot-switchable, with free orbit always on.
+
+The geometry side lives in [`src/viz/rig.ts`](./src/viz/rig.ts): the player stands at the origin facing +z (the audience), and each spin has a default rig — side spin spreads the hands left/right with the string plane facing the audience; front spin reaches the non-throwhand forward with the string plane running toward the audience. Fingers are segments pointing along the string-plane normal (that's what lets string wrap *around* them), and contacts sit at knuckle-relative points: the slipknot rides the middle finger near the middle knuckle, wraps sit out toward the fingertip.
+
+`layoutMount(mount, rig)` walks the contact traversal and renders each hand contact as a **wrap arc**: the string follows the finger cylinder from the incoming strand's tangent point, over (or under) the finger, to the outgoing strand's tangent point — so a trapeze visibly opens up around the non-throwhand index and the slipknot draws as a coil with an exiting tail. Repeated wraps on one anchor stack along the finger, and the yo-yo rests on the segment at its `gap` contact (or dangles at the string's end without one). Pure heuristics, no physics — that's Session 4.
 
 ## The schema
 
@@ -88,11 +97,12 @@ The ten staple mounts (dead string, trapeze, front mount, brother, 1.5, double o
 
 ```
 src/core/     schema, canonicalization, name registry, fixture loading
+src/viz/      rig + Layout (pure, tested) and the react-three-fiber app
 data/mounts/  one JSON fixture per mount
 data/tricks/  trick fixtures (mount paths)
 data/names.json  name registry keyed by canonical hash
-test/         vitest suites: validation, canonical equality, hash stability, fixtures
+test/         vitest suites: validation, canonical equality, hash stability, fixtures, layout
 scripts/      dev utilities (print-hashes)
 ```
 
-`viz/`, `sim/`, and `search/` modules arrive in later sessions.
+`sim/` and `search/` modules arrive in later sessions. Browser code must not import node-only modules (`src/core/fixtures.ts` reads the filesystem, `src/core/canonical.ts` uses `node:crypto`); the app loads fixtures via Vite glob imports in `src/viz/mounts.ts` instead.
