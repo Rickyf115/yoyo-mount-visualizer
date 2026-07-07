@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { Mount } from "./schema.js";
 
 /**
@@ -91,11 +90,9 @@ export function canonicalSerialize(mount: Mount): string {
   return stableStringify(canonicalize(mount));
 }
 
-/** A mount's identity: sha256 of its canonical serialization. */
-export function mountHash(mount: Mount): string {
-  return createHash("sha256").update(canonicalSerialize(mount), "utf8").digest("hex");
-}
-
 export function mountsEqual(a: Mount, b: Mount): boolean {
   return canonicalSerialize(a) === canonicalSerialize(b);
 }
+
+// mountHash (sha256 of the canonical serialization) lives in hash.ts — it
+// needs node:crypto, while this module stays browser-safe.
