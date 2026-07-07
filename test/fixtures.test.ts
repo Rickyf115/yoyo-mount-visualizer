@@ -23,6 +23,7 @@ const STAPLES = [
   "triple-or-nothing",
   "split-bottom",
   "houdini",
+  "front-mount",
 ];
 
 describe("mount fixtures", () => {
@@ -34,8 +35,22 @@ describe("mount fixtures", () => {
     const houdini = mounts.get("houdini")!;
     const don = mounts.get("double-or-nothing")!;
     expect(houdini.contacts.length).toBe(don.contacts.length);
-    expect(houdini.throw).toBe(don.throw);
+    expect(houdini.spin).toBe(don.spin);
     expect(mountHash(houdini)).not.toBe(mountHash(don));
+  });
+
+  it("front mount is the trapeze traversal with front spin — same contacts, different mount", () => {
+    const trapeze = mounts.get("trapeze")!;
+    const frontMount = mounts.get("front-mount")!;
+    expect(frontMount.contacts).toEqual(trapeze.contacts);
+    expect(frontMount.spin).not.toBe(trapeze.spin);
+    expect(mountHash(frontMount)).not.toBe(mountHash(trapeze));
+  });
+
+  it("spin splits the fixture set into two halves", () => {
+    const all = [...mounts.values()];
+    expect(all.filter((m) => m.spin === "side").length).toBeGreaterThan(0);
+    expect(all.filter((m) => m.spin === "front").length).toBeGreaterThan(0);
   });
 
   it("all load, validate, and canonicalize", () => {
@@ -92,12 +107,12 @@ describe("trick fixtures", () => {
     expect(cascade.steps.every((s) => s.element === undefined)).toBe(true);
   });
 
-  it("every trick keeps one throw throughout (spin direction cannot change mid-trick)", () => {
+  it("every trick keeps one spin throughout (spin cannot change without a regeneration)", () => {
     for (const trick of tricks.values()) {
-      const throws = new Set(
-        [trick.start, ...trick.steps.map((s) => s.to)].map((ref) => mounts.get(ref)!.throw),
+      const spins = new Set(
+        [trick.start, ...trick.steps.map((s) => s.to)].map((ref) => mounts.get(ref)!.spin),
       );
-      expect(throws.size, `${trick.name} mixes throws: ${[...throws].join(", ")}`).toBe(1);
+      expect(spins.size, `${trick.name} mixes spins: ${[...spins].join(", ")}`).toBe(1);
     }
   });
 });

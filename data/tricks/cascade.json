@@ -6,5 +6,5 @@
     { "to": "double-or-nothing" },
     { "to": "trapeze" }
   ],
-  "notes": "Pure mount-sequence fixture: every step is unpinned (no element), meaning 'any legal element that maps here' — the engine infers connectors once elements exist (Session 3+). All mounts share the breakaway throw, since spin direction cannot change mid-trick. The mount sequence is a provisional skeleton to be verified against the actual trick; refine the data, never the engine, if it proves wrong."
+  "notes": "Pure mount-sequence fixture: every step is unpinned (no element), meaning 'any legal element that maps here' — the engine infers connectors once elements exist (Session 3+). All mounts share side spin, since spin cannot change without a regeneration. The mount sequence is a provisional skeleton to be verified against the actual trick; refine the data, never the engine, if it proves wrong."
 }

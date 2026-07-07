@@ -43,8 +43,8 @@ describe("Mount schema", () => {
     expect(Mount.safeParse(makeTrapeze()).success).toBe(true);
   });
 
-  it("rejects a mount without a throw", () => {
-    const { throw: _throw, ...rest } = makeTrapeze();
+  it("rejects a mount without a spin", () => {
+    const { spin: _spin, ...rest } = makeTrapeze();
     expect(Mount.safeParse(rest).success).toBe(false);
   });
 

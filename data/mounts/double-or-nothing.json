@@ -1,7 +1,7 @@
 {
   "id": "double-or-nothing",
   "name": "double or nothing",
-  "throw": "breakaway",
+  "spin": "side",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "yoyo-gap", "kind": "gap" },

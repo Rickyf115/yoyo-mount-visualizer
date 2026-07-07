@@ -33,7 +33,7 @@ describe("canonicalization", () => {
     const a = makeTrapeze();
     const b: Mount = {
       id: "renamed",
-      throw: "breakaway",
+      spin: "side",
       anchors: [
         { id: "end", kind: "axle" },
         { id: "left-pointer", kind: "finger", side: "L", digit: "index" },
@@ -68,11 +68,11 @@ describe("canonicalization", () => {
     expect(mountsEqual(overFinger, overThumb)).toBe(false);
   });
 
-  it("distinguishes throw style: front and breakaway twins are different mounts", () => {
-    const breakaway = makeTrapeze();
-    const front = makeTrapeze({ throw: "front" });
-    expect(mountsEqual(breakaway, front)).toBe(false);
-    expect(mountHash(breakaway)).not.toBe(mountHash(front));
+  it("distinguishes spin: a side-spin trapeze and its front-spin twin are different mounts", () => {
+    const trapeze = makeTrapeze();
+    const frontMount = makeTrapeze({ spin: "front" });
+    expect(mountsEqual(trapeze, frontMount)).toBe(false);
+    expect(mountHash(trapeze)).not.toBe(mountHash(frontMount));
   });
 
   it("keeps two distinct same-digit anchors distinct from one anchor contacted twice", () => {
@@ -193,7 +193,7 @@ describe("canonicalization", () => {
     // If canonicalization changes deliberately, regenerate with `pnpm hashes`
     // and update data/names.json in the same commit.
     expect(mountHash(makeTrapeze())).toBe(
-      "87e2e3ed23573b0aea96dcade9e1bce95efc46fbd64e58fea4b11258b6357a45",
+      "3f47ad1e087e5ec091e57b46e88c464ccefaf18af980dea959cf6b8a5213942a",
     );
   });
 });

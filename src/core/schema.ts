@@ -115,13 +115,19 @@ export const Crossing = z
 export type Crossing = z.infer<typeof Crossing>;
 
 /**
- * Which throw started the trick. Identity-bearing: the throw fixes the
- * yo-yo's spin direction, and spin governs which transitions are legal
- * (rolls follow the spin; a front-style mount and its breakaway twin are
- * different states even when the string traversal matches).
+ * The plane the yo-yo is spinning in, relative to the player.
+ * Identity-bearing: spin governs which transitions are legal (rolls follow
+ * the spin), so the same string traversal with different spin is a
+ * different mount — a side-spin trapeze is the trapeze, while the identical
+ * traversal with front spin is just a front mount.
+ *
+ * Spin partitions the mount graph into two halves. Throws are not mount
+ * properties but *entry points* into the graph: a front throw enters the
+ * front-spin half, a breakaway enters the side-spin half (entry edges land
+ * in Session 3/7). Regeneration elements can later reconnect the halves.
  */
-export const Throw = z.enum(["front", "breakaway"]);
-export type Throw = z.infer<typeof Throw>;
+export const Spin = z.enum(["front", "side"]);
+export type Spin = z.infer<typeof Spin>;
 
 export const Mount = z
   .object({
@@ -129,7 +135,7 @@ export const Mount = z
     id: z.string().min(1),
     /** Optional human label for fixture readability. Authoritative naming lives in the name registry. */
     name: z.string().min(1).optional(),
-    throw: Throw,
+    spin: Spin,
     anchors: z.array(Anchor).min(2),
     contacts: z.array(ContactEvent).min(2),
     crossings: z.array(Crossing),

@@ -4,7 +4,7 @@ Read [ROADMAP.md](./ROADMAP.md) before doing anything. This project is built one
 
 ## Current state
 
-- **Session 1 (core schema & canonical mounts): DONE.** Zod schemas, canonicalization + sha256 identity, 9 staple mount fixtures (incl. houdini), name registry with the brother/undermount alias, Cascade trick skeleton, 53 tests green. Identity includes finger digits and throw style (front vs breakaway) per owner direction.
+- **Session 1 (core schema & canonical mounts): DONE.** Zod schemas, canonicalization + sha256 identity, 10 staple mount fixtures (incl. houdini and front mount), name registry with the brother/undermount alias, Cascade trick skeleton, 55 tests green. Identity includes finger digits and spin (front vs side) per owner direction; throws are graph entry points, not mount properties.
 - **Scope assumption: 1A only** — single unresponsive yo-yo, string on the throwhand. Other styles are logged in `IDEAS.md`, not modeled.
 - **Next up: Session 2 (static visualizer).** Vite + react-three-fiber app, first-pass `Layout(Mount, Rig) -> ControlPoint[]`, three camera presets, fixture dropdown.
 
@@ -23,8 +23,9 @@ Read [ROADMAP.md](./ROADMAP.md) before doing anything. This project is built one
 ## Data model invariants (do not break silently)
 
 - A mount's `contacts` walk the string from the throwhand `loop` (always first) to the `axle` winding (always last); a `gap` contact = the yo-yo resting on the string at that point. Segment `i` spans `contacts[i]` → `contacts[i+1]`.
-- **Identity = `mountHash` (sha256 of the canonical serialization).** Canonicalization erases mount id/name and anchor ids (renamed `kind:side:digit:n` by first appearance along the traversal), sorts crossings, and preserves throw style, traversal order, wrap, direction, digit, and sidedness. Names live only in `data/names.json`.
-- `throw` (`front | breakaway`) is identity-bearing (spin direction gates transitions) and constant along a trick — a trick fixture must not mix throws; fingers carry an identity-bearing `digit` (double or nothing ≠ houdini).
+- **Identity = `mountHash` (sha256 of the canonical serialization).** Canonicalization erases mount id/name and anchor ids (renamed `kind:side:digit:n` by first appearance along the traversal), sorts crossings, and preserves spin, traversal order, wrap, direction, digit, and sidedness. Names live only in `data/names.json`.
+- `spin` (`front | side`) is identity-bearing (spin gates transitions; side-spin trapeze = trapeze, front-spin twin = front mount) and splits the graph in two. **Throws are graph entry points, not mount properties**: front throw enters the front half, breakaway the side half (entry edges land with elements, Session 3/7); regeneration elements later reconnect the halves. Until regens exist a trick keeps one spin throughout (fixture-tested).
+- Fingers carry an identity-bearing `digit` (double or nothing ≠ houdini).
 - `data/names.json` stores real hashes and tests recompute them — it is the hash-stability regression pin. If you change canonicalization *deliberately*, regenerate with `pnpm hashes` and update the registry in the same commit; if it changed *accidentally*, that test failure is telling you to fix your code.
 - Trick steps: `element` present = route pinned (identity-bearing); absent = "any legal element". Both forms must stay supported.
 

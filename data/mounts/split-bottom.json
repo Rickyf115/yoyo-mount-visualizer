@@ -1,7 +1,7 @@
 {
   "id": "split-bottom",
   "name": "split bottom mount",
-  "throw": "front",
+  "spin": "front",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "nth-index", "kind": "finger", "side": "L", "digit": "index" },

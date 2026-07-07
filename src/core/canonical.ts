@@ -15,8 +15,9 @@ import type { Mount } from "./schema.js";
  * - Crossing list order (sorted).
  *
  * What it preserves:
- * - The throw (front vs breakaway): spin direction governs which
- *   transitions are legal, so it is part of the mount's identity.
+ * - The spin (front vs side): spin governs which transitions are legal and
+ *   splits the mount graph in two, so it is part of the mount's identity.
+ *   (Throws are graph entry points, not mount properties.)
  * - The traversal: contact order, wrap, and direction.
  * - Which digit carries a wrap: transitions can require a specific finger
  *   (double or nothing on the throwhand index vs houdini on the throwhand
@@ -33,7 +34,7 @@ export interface CanonicalContact {
 }
 
 export interface CanonicalMount {
-  throw: Mount["throw"];
+  spin: Mount["spin"];
   contacts: CanonicalContact[];
   crossings: { over: number; under: number }[];
 }
@@ -82,7 +83,7 @@ export function canonicalize(mount: Mount): CanonicalMount {
     .map(({ over, under }) => ({ over, under }))
     .sort((a, b) => a.over - b.over || a.under - b.under);
 
-  return { throw: mount.throw, contacts, crossings };
+  return { spin: mount.spin, contacts, crossings };
 }
 
 /** The canonical serialized form: identical for topologically equal mounts. */

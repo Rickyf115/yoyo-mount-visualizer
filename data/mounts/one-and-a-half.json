@@ -1,7 +1,7 @@
 {
   "id": "one-and-a-half",
   "name": "1.5 mount",
-  "throw": "breakaway",
+  "spin": "side",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "nth-index", "kind": "finger", "side": "L", "digit": "index" },

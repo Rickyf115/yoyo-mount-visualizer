@@ -5,7 +5,7 @@ export function makeTrapeze(overrides: Partial<Mount> = {}): Mount {
   return {
     id: "test-trapeze",
     name: "trapeze",
-    throw: "breakaway",
+    spin: "side",
     anchors: [
       { id: "th-loop", kind: "loop", side: "R" },
       { id: "yoyo-gap", kind: "gap" },

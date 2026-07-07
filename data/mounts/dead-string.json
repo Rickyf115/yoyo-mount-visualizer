@@ -1,7 +1,7 @@
 {
   "id": "dead-string",
   "name": "dead string",
-  "throw": "front",
+  "spin": "front",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "axle", "kind": "axle" }
