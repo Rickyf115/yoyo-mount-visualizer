@@ -26,6 +26,17 @@ export type AnchorKind = z.infer<typeof AnchorKind>;
 export const Side = z.enum(["L", "R"]);
 export type Side = z.infer<typeof Side>;
 
+/**
+ * Which finger a `finger` anchor is. Identity-bearing: a double or nothing
+ * (throwhand index) and a houdini mount (throwhand thumb) are different
+ * mounts, and likewise an index-finger wrap differs from a middle-finger
+ * wrap — transitions can require a specific digit. The thumb is its own
+ * anchor kind rather than a digit value, mirroring how players talk about
+ * thumb mounts.
+ */
+export const Digit = z.enum(["index", "middle", "ring", "pinky"]);
+export type Digit = z.infer<typeof Digit>;
+
 /** Anchor kinds that belong to a hand and therefore require a side. */
 const HAND_KINDS: ReadonlySet<AnchorKind> = new Set(["finger", "thumb", "loop"]);
 
@@ -36,6 +47,8 @@ export const Anchor = z
     kind: AnchorKind,
     /** Required for hand anchors (finger/thumb/loop); forbidden for axle/gap. */
     side: Side.optional(),
+    /** Required for kind "finger"; forbidden otherwise. */
+    digit: Digit.optional(),
   })
   .strict()
   .superRefine((anchor, ctx) => {
@@ -51,6 +64,20 @@ export const Anchor = z
         code: z.ZodIssueCode.custom,
         message: `anchor "${anchor.id}" of kind "${anchor.kind}" must not have a side`,
         path: ["side"],
+      });
+    }
+    if (anchor.kind === "finger" && anchor.digit === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `anchor "${anchor.id}" of kind "finger" requires a digit`,
+        path: ["digit"],
+      });
+    }
+    if (anchor.kind !== "finger" && anchor.digit !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `anchor "${anchor.id}" of kind "${anchor.kind}" must not have a digit`,
+        path: ["digit"],
       });
     }
   });
@@ -87,12 +114,22 @@ export const Crossing = z
   });
 export type Crossing = z.infer<typeof Crossing>;
 
+/**
+ * Which throw started the trick. Identity-bearing: the throw fixes the
+ * yo-yo's spin direction, and spin governs which transitions are legal
+ * (rolls follow the spin; a front-style mount and its breakaway twin are
+ * different states even when the string traversal matches).
+ */
+export const Throw = z.enum(["front", "breakaway"]);
+export type Throw = z.infer<typeof Throw>;
+
 export const Mount = z
   .object({
     /** Fixture-local identifier. Not part of mount identity. */
     id: z.string().min(1),
     /** Optional human label for fixture readability. Authoritative naming lives in the name registry. */
     name: z.string().min(1).optional(),
+    throw: Throw,
     anchors: z.array(Anchor).min(2),
     contacts: z.array(ContactEvent).min(2),
     crossings: z.array(Crossing),

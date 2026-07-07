@@ -4,6 +4,8 @@ String Trick Engine: model yo-yo string mounts topologically, visualize them in 
 
 **Status:** Session 1 complete — core schema, canonicalization, and fixture mounts.
 
+**Scope assumption:** everything models **1A** — a single unresponsive yo-yo with the string attached to the throwhand. Other styles (5A counterweight, 3A, 4A offstring, responsive 2A) are future work; see `IDEAS.md`.
+
 ```sh
 pnpm install
 pnpm test        # vitest suite
@@ -22,6 +24,8 @@ All types are Zod schemas in [`src/core/schema.ts`](./src/core/schema.ts); parsi
 - The string is walked from the **player end** to the **yo-yo end**: the first contact is always the slipknot loop on the throwhand (kind `loop`), the last is always the string's winding around the axle (kind `axle`). Each appears exactly once.
 - A `gap` contact means the string passes through the yo-yo's gap and rides over the axle at that point — i.e. the yo-yo is *mounted* on that part of the string. The string's own final approach into the gap to reach its axle winding is **not** recorded as a gap contact; it is implicit in the terminal `axle` contact.
 - `finger`/`thumb` contacts are wraps. `wrap: over | under` says which side of the anchor the string passes; `direction: cw | ccw` records the wrap sense. Canonicalization treats both as opaque labels — their precise geometric meaning gets pinned down by the `Layout` function in Session 2.
+- Every `finger` anchor carries a `digit` (`index | middle | ring | pinky`); the thumb is its own anchor kind. **Which digit matters**: a double or nothing (throwhand index) and a houdini mount (throwhand thumb) are different mounts because transitions can require a specific finger.
+- Every mount records its `throw` (`front | breakaway`) — which throw started the trick. The throw fixes the yo-yo's spin direction, spin governs which transitions are legal (rolls follow the spin), and spin cannot change mid-trick, so all mounts along one trick share a throw.
 - **Segment `i`** is the span of string between `contacts[i]` and `contacts[i+1]`. Crossings reference segments by index: `{ over, under }` means segment `over` passes over segment `under`.
 - Fixtures are authored for a right-handed player: throwhand side `R`, non-throwhand side `L`.
 
@@ -33,10 +37,11 @@ The yo-yo hangs on the string strand that runs from the throwhand up to the non-
 {
   "id": "trapeze",
   "name": "trapeze",
+  "throw": "breakaway",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "yoyo-gap", "kind": "gap" },
-    { "id": "nth-index", "kind": "finger", "side": "L" },
+    { "id": "nth-index", "kind": "finger", "side": "L", "digit": "index" },
     { "id": "axle", "kind": "axle" }
   ],
   "contacts": [
@@ -55,13 +60,13 @@ Read the contacts in order: string starts at the throwhand loop → the yo-yo re
 
 A mount's identity is its **canonical topological form**, never its name or its fixture id ([`src/core/canonical.ts`](./src/core/canonical.ts)).
 
-`canonicalize(mount)` erases everything that is labeling or pose rather than topology:
+`canonicalize(mount)` erases everything that is labeling rather than topology:
 
 - `id` and `name` are dropped.
-- Anchor ids and declaration order are erased: anchors are renamed `kind:side:n` in order of first appearance along the traversal. Which *physical* finger an anchor maps to is pose — a trapeze over the index finger and one over the middle finger canonicalize identically — while two distinct fingers used in the same mount stay distinct.
+- Anchor ids and declaration order are erased: anchors are renamed `kind:side:digit:n` in order of first appearance along the traversal (`-` stands in for absent side/digit).
 - Crossings are sorted.
 
-It preserves the ordered traversal (contact order, wrap, direction) and sidedness (a left-handed player's trapeze is a different mount; mirror-equivalence can be layered on later if wanted).
+It preserves the throw (front vs breakaway spin), the ordered traversal (contact order, wrap, direction), which digit carries each wrap, and sidedness (a left-handed player's trapeze is a different mount; mirror-equivalence can be layered on later if wanted).
 
 `canonicalSerialize` renders that form as deterministic JSON (sorted keys), and `mountHash` is its sha256 — so *two topologically identical mounts serialize identically*, and equality, deduplication, and (later) database identity are hash comparisons.
 
@@ -77,7 +82,7 @@ A trick is a path through mount space: `{ name, start, steps }`, where each step
 
 ### Fixture accuracy note
 
-The eight staple mounts (dead string, trapeze, brother, 1.5, double or nothing, double brother, triple or nothing, split bottom) are hand-authored first passes. Exact strand assignments (which segment the yo-yo rests on in double or nothing, wrap directions) are provisional until Session 2's visualizer makes them inspectable — corrections are data+hash updates, never engine edits to make tests pass.
+The nine staple mounts (dead string, trapeze, brother, 1.5, double or nothing, double brother, triple or nothing, split bottom, houdini) are hand-authored first passes. Exact strand assignments (which segment the yo-yo rests on in double or nothing, wrap directions) are provisional until Session 2's visualizer makes them inspectable — corrections are data+hash updates, never engine edits to make tests pass.
 
 ## Repo layout
 

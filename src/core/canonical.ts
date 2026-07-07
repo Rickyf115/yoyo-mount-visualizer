@@ -9,15 +9,18 @@ import type { Mount } from "./schema.js";
  * What canonicalization erases:
  * - `id` and `name` — labels, not identity.
  * - Anchor ids and declaration order. Anchors are renamed to
- *   `kind:side:n` where n counts distinct anchors of that (kind, side) class
- *   in order of first appearance along the traversal. Which physical finger
- *   an anchor maps to is treated as pose, not topology: a trapeze over the
- *   index finger and one over the middle finger canonicalize identically,
- *   while two *distinct* fingers used in one mount stay distinct.
+ *   `kind:side:digit:n` where n counts distinct anchors of that
+ *   (kind, side, digit) class in order of first appearance along the
+ *   traversal ("-" stands in for absent side/digit).
  * - Crossing list order (sorted).
  *
  * What it preserves:
+ * - The throw (front vs breakaway): spin direction governs which
+ *   transitions are legal, so it is part of the mount's identity.
  * - The traversal: contact order, wrap, and direction.
+ * - Which digit carries a wrap: transitions can require a specific finger
+ *   (double or nothing on the throwhand index vs houdini on the throwhand
+ *   thumb), so digits — like the finger/thumb kind split — are identity.
  * - Sidedness. A mirrored mount is a different mount (a left-handed player's
  *   trapeze hashes differently). Mirror-equivalence can be layered on later
  *   if we decide we want it.
@@ -30,6 +33,7 @@ export interface CanonicalContact {
 }
 
 export interface CanonicalMount {
+  throw: Mount["throw"];
   contacts: CanonicalContact[];
   crossings: { over: number; under: number }[];
 }
@@ -62,7 +66,7 @@ export function canonicalize(mount: Mount): CanonicalMount {
         `mount "${mount.id}" contacts undeclared anchor "${contact.anchor}" — validate with the Mount schema first`,
       );
     }
-    const cls = `${anchor.kind}:${anchor.side ?? "-"}`;
+    const cls = `${anchor.kind}:${anchor.side ?? "-"}:${anchor.digit ?? "-"}`;
     const n = classCounters.get(cls) ?? 0;
     classCounters.set(cls, n + 1);
     canonicalIds.set(contact.anchor, `${cls}:${n}`);
@@ -78,7 +82,7 @@ export function canonicalize(mount: Mount): CanonicalMount {
     .map(({ over, under }) => ({ over, under }))
     .sort((a, b) => a.over - b.over || a.under - b.under);
 
-  return { contacts, crossings };
+  return { throw: mount.throw, contacts, crossings };
 }
 
 /** The canonical serialized form: identical for topologically equal mounts. */

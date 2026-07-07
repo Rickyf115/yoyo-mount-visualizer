@@ -1,11 +1,12 @@
 {
   "id": "split-bottom",
   "name": "split bottom mount",
+  "throw": "front",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
-    { "id": "nth-index", "kind": "finger", "side": "L" },
+    { "id": "nth-index", "kind": "finger", "side": "L", "digit": "index" },
     { "id": "yoyo-gap", "kind": "gap" },
-    { "id": "th-index", "kind": "finger", "side": "R" },
+    { "id": "th-index", "kind": "finger", "side": "R", "digit": "index" },
     { "id": "axle", "kind": "axle" }
   ],
   "contacts": [

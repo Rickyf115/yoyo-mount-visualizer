@@ -22,11 +22,20 @@ const STAPLES = [
   "double-brother",
   "triple-or-nothing",
   "split-bottom",
+  "houdini",
 ];
 
 describe("mount fixtures", () => {
-  it("include all eight staple mounts", () => {
+  it("include all staple mounts", () => {
     expect([...mounts.keys()].sort()).toEqual([...STAPLES].sort());
+  });
+
+  it("houdini differs from double or nothing only by the throwhand anchor, yet hashes apart", () => {
+    const houdini = mounts.get("houdini")!;
+    const don = mounts.get("double-or-nothing")!;
+    expect(houdini.contacts.length).toBe(don.contacts.length);
+    expect(houdini.throw).toBe(don.throw);
+    expect(mountHash(houdini)).not.toBe(mountHash(don));
   });
 
   it("all load, validate, and canonicalize", () => {
@@ -81,5 +90,14 @@ describe("trick fixtures", () => {
   it("Cascade is a pure mount sequence (all steps unpinned)", () => {
     const cascade = tricks.get("Cascade")!;
     expect(cascade.steps.every((s) => s.element === undefined)).toBe(true);
+  });
+
+  it("every trick keeps one throw throughout (spin direction cannot change mid-trick)", () => {
+    for (const trick of tricks.values()) {
+      const throws = new Set(
+        [trick.start, ...trick.steps.map((s) => s.to)].map((ref) => mounts.get(ref)!.throw),
+      );
+      expect(throws.size, `${trick.name} mixes throws: ${[...throws].join(", ")}`).toBe(1);
+    }
   });
 });

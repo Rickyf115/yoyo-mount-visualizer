@@ -33,9 +33,10 @@ describe("canonicalization", () => {
     const a = makeTrapeze();
     const b: Mount = {
       id: "renamed",
+      throw: "breakaway",
       anchors: [
         { id: "end", kind: "axle" },
-        { id: "left-pointer", kind: "finger", side: "L" },
+        { id: "left-pointer", kind: "finger", side: "L", digit: "index" },
         { id: "slipknot", kind: "loop", side: "R" },
         { id: "the-gap", kind: "gap" },
       ],
@@ -51,15 +52,30 @@ describe("canonicalization", () => {
     expect(mountHash(a)).toBe(mountHash(b));
   });
 
-  it("treats which physical finger as pose, not topology", () => {
+  it("distinguishes which digit carries a wrap (transitions can require a specific finger)", () => {
     const overIndex = makeTrapeze();
     const overMiddle = makeTrapeze();
-    overMiddle.anchors[2] = { id: "nth-middle", kind: "finger", side: "L" };
+    overMiddle.anchors[2] = { id: "nth-middle", kind: "finger", side: "L", digit: "middle" };
     overMiddle.contacts[2]!.anchor = "nth-middle";
-    expect(mountsEqual(overIndex, overMiddle)).toBe(true);
+    expect(mountsEqual(overIndex, overMiddle)).toBe(false);
   });
 
-  it("keeps two distinct fingers of the same hand distinct", () => {
+  it("distinguishes a thumb wrap from a finger wrap", () => {
+    const overFinger = makeTrapeze();
+    const overThumb = makeTrapeze();
+    overThumb.anchors[2] = { id: "nth-thumb", kind: "thumb", side: "L" };
+    overThumb.contacts[2]!.anchor = "nth-thumb";
+    expect(mountsEqual(overFinger, overThumb)).toBe(false);
+  });
+
+  it("distinguishes throw style: front and breakaway twins are different mounts", () => {
+    const breakaway = makeTrapeze();
+    const front = makeTrapeze({ throw: "front" });
+    expect(mountsEqual(breakaway, front)).toBe(false);
+    expect(mountHash(breakaway)).not.toBe(mountHash(front));
+  });
+
+  it("keeps two distinct same-digit anchors distinct from one anchor contacted twice", () => {
     const oneFingerTwice: Mount = Mount.parse({
       ...makeTrapeze(),
       contacts: [
@@ -72,7 +88,10 @@ describe("canonicalization", () => {
     });
     const twoFingers: Mount = Mount.parse({
       ...makeTrapeze(),
-      anchors: [...makeTrapeze().anchors, { id: "nth-middle", kind: "finger", side: "L" }],
+      anchors: [
+        ...makeTrapeze().anchors,
+        { id: "nth-middle", kind: "finger", side: "L", digit: "middle" },
+      ],
       contacts: [
         { anchor: "th-loop", wrap: "over", direction: "cw" },
         { anchor: "nth-index", wrap: "over", direction: "ccw" },
@@ -90,7 +109,7 @@ describe("canonicalization", () => {
     mirrored.anchors = [
       { id: "th-loop", kind: "loop", side: "L" },
       { id: "yoyo-gap", kind: "gap" },
-      { id: "nth-index", kind: "finger", side: "R" },
+      { id: "nth-index", kind: "finger", side: "R", digit: "index" },
       { id: "axle", kind: "axle" },
     ];
     expect(mountsEqual(right, mirrored)).toBe(false);
@@ -145,10 +164,10 @@ describe("canonicalization", () => {
   it("renames anchors by first appearance along the traversal", () => {
     const canonical = canonicalize(makeTrapeze());
     expect(canonical.contacts.map((c) => c.anchor)).toEqual([
-      "loop:R:0",
-      "gap:-:0",
-      "finger:L:0",
-      "axle:-:0",
+      "loop:R:-:0",
+      "gap:-:-:0",
+      "finger:L:index:0",
+      "axle:-:-:0",
     ]);
   });
 
@@ -174,7 +193,7 @@ describe("canonicalization", () => {
     // If canonicalization changes deliberately, regenerate with `pnpm hashes`
     // and update data/names.json in the same commit.
     expect(mountHash(makeTrapeze())).toBe(
-      "9684e3a7d540a14a0bb57883c2e8803fe14f9684563ab85c13dd51ce20362daa",
+      "87e2e3ed23573b0aea96dcade9e1bce95efc46fbd64e58fea4b11258b6357a45",
     );
   });
 });

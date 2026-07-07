@@ -4,13 +4,29 @@ import { makeTrapeze } from "./helpers.js";
 
 describe("Anchor schema", () => {
   it("accepts hand anchors with a side and sideless axle/gap", () => {
-    expect(Anchor.safeParse({ id: "nth-index", kind: "finger", side: "L" }).success).toBe(true);
+    expect(
+      Anchor.safeParse({ id: "nth-index", kind: "finger", side: "L", digit: "index" }).success,
+    ).toBe(true);
+    expect(Anchor.safeParse({ id: "th-thumb", kind: "thumb", side: "R" }).success).toBe(true);
     expect(Anchor.safeParse({ id: "axle", kind: "axle" }).success).toBe(true);
     expect(Anchor.safeParse({ id: "yoyo-gap", kind: "gap" }).success).toBe(true);
   });
 
   it("rejects a finger without a side", () => {
-    expect(Anchor.safeParse({ id: "nth-index", kind: "finger" }).success).toBe(false);
+    expect(Anchor.safeParse({ id: "nth-index", kind: "finger", digit: "index" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a finger without a digit", () => {
+    expect(Anchor.safeParse({ id: "nth-index", kind: "finger", side: "L" }).success).toBe(false);
+  });
+
+  it("rejects a digit on non-finger kinds", () => {
+    expect(
+      Anchor.safeParse({ id: "th-thumb", kind: "thumb", side: "R", digit: "index" }).success,
+    ).toBe(false);
+    expect(Anchor.safeParse({ id: "axle", kind: "axle", digit: "index" }).success).toBe(false);
   });
 
   it("rejects an axle with a side", () => {
@@ -27,9 +43,14 @@ describe("Mount schema", () => {
     expect(Mount.safeParse(makeTrapeze()).success).toBe(true);
   });
 
+  it("rejects a mount without a throw", () => {
+    const { throw: _throw, ...rest } = makeTrapeze();
+    expect(Mount.safeParse(rest).success).toBe(false);
+  });
+
   it("rejects duplicate anchor ids", () => {
     const mount = makeTrapeze();
-    mount.anchors.push({ id: "nth-index", kind: "finger", side: "L" });
+    mount.anchors.push({ id: "nth-index", kind: "finger", side: "L", digit: "index" });
     mount.contacts.splice(2, 0, { anchor: "nth-index", wrap: "over", direction: "cw" });
     expect(Mount.safeParse(mount).success).toBe(false);
   });

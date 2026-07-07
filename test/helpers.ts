@@ -5,10 +5,11 @@ export function makeTrapeze(overrides: Partial<Mount> = {}): Mount {
   return {
     id: "test-trapeze",
     name: "trapeze",
+    throw: "breakaway",
     anchors: [
       { id: "th-loop", kind: "loop", side: "R" },
       { id: "yoyo-gap", kind: "gap" },
-      { id: "nth-index", kind: "finger", side: "L" },
+      { id: "nth-index", kind: "finger", side: "L", digit: "index" },
       { id: "axle", kind: "axle" },
     ],
     contacts: [

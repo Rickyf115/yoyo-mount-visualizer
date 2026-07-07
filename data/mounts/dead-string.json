@@ -1,6 +1,7 @@
 {
   "id": "dead-string",
   "name": "dead string",
+  "throw": "front",
   "anchors": [
     { "id": "th-loop", "kind": "loop", "side": "R" },
     { "id": "axle", "kind": "axle" }
