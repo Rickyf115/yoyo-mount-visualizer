@@ -5,6 +5,8 @@ import {
   applyElement,
   legalElements,
   passElement,
+  type Element,
+  type MotionHint,
 } from "../core/elements.js";
 import type { Mount } from "../core/schema.js";
 import { MOUNTS, displayName, fixtureTwin, mountById } from "./mounts.js";
@@ -35,12 +37,20 @@ function traversalSummary(mount: Mount): string {
     .join(" → ");
 }
 
+interface QueuedTransition {
+  mount: Mount;
+  /** Swing-arc hint from the element that produced this target. */
+  hint: MotionHint | null;
+}
+
 interface PlayerState {
   current: Mount;
-  /** Upcoming transition targets, animated one at a time. */
-  queue: Mount[];
+  /** Upcoming transitions, animated one at a time. */
+  queue: QueuedTransition[];
   /** Progress through the current transition, 0..1. */
   t: number;
+  /** Bumped on hard jumps (dropdown/throw) so the rope reseeds. */
+  epoch: number;
 }
 
 export function App() {
@@ -48,16 +58,18 @@ export function App() {
     current: mountById("trapeze"),
     queue: [],
     t: 0,
+    epoch: 0,
   });
   const [playing, setPlaying] = useState(true);
+  const [physics, setPhysics] = useState(true);
   const [preset, setPreset] = useState<CameraPresetName>("audience");
 
   const { current, queue, t } = state;
   const target = queue[0];
   // The mount the *next* enqueued element applies to (chaining while playing).
-  const tail = queue[queue.length - 1] ?? current;
+  const tail = queue[queue.length - 1]?.mount ?? current;
   // Once past the beat, the traversal readout switches to the incoming topology.
-  const shown = target && t >= 0.5 ? target : current;
+  const shown = target && t >= 0.5 ? target.mount : current;
 
   useEffect(() => {
     if (!playing) return;
@@ -69,7 +81,9 @@ export function App() {
       setState((s) => {
         if (s.queue.length === 0) return s;
         const nt = s.t + dt / TRANSITION_SECONDS;
-        if (nt >= 1) return { current: s.queue[0]!, queue: s.queue.slice(1), t: 0 };
+        if (nt >= 1) {
+          return { current: s.queue[0]!.mount, queue: s.queue.slice(1), t: 0, epoch: s.epoch };
+        }
         return { ...s, t: nt };
       });
       raf = requestAnimationFrame(step);
@@ -78,14 +92,27 @@ export function App() {
     return () => cancelAnimationFrame(raf);
   }, [playing]);
 
-  const jumpTo = (mount: Mount) => setState({ current: mount, queue: [], t: 0 });
-  const enqueue = (mount: Mount) =>
-    setState((s) => ({ ...s, queue: [...s.queue, mount] }));
+  const jumpTo = (mount: Mount) =>
+    setState((s) => ({ current: mount, queue: [], t: 0, epoch: s.epoch + 1 }));
+  const enqueue = (element: Element, from: Mount) =>
+    setState((s) => ({
+      ...s,
+      queue: [...s.queue, { mount: applyElement(element, from), hint: element.motion(from) }],
+    }));
   const runDemo = () => {
     const trapeze = mountById("trapeze");
-    const midSwing = applyElement(passElement({ side: "R", digit: "index" }), trapeze);
-    const don = applyElement(passElement({ side: "L", digit: "index" }), midSwing);
-    setState({ current: trapeze, queue: [midSwing, don], t: 0 });
+    const passR = passElement({ side: "R", digit: "index" });
+    const passL = passElement({ side: "L", digit: "index" });
+    const midSwing = applyElement(passR, trapeze);
+    setState((s) => ({
+      current: trapeze,
+      queue: [
+        { mount: midSwing, hint: passR.motion(trapeze) },
+        { mount: applyElement(passL, midSwing), hint: passL.motion(midSwing) },
+      ],
+      t: 0,
+      epoch: s.epoch + 1,
+    }));
     setPlaying(true);
   };
 
@@ -129,7 +156,7 @@ export function App() {
           <button
             key={element.name}
             title={element.description}
-            onClick={() => enqueue(applyElement(element, tail))}
+            onClick={() => enqueue(element, tail)}
           >
             {element.name}
           </button>
@@ -152,14 +179,26 @@ export function App() {
             setState((s) => ({ ...s, t: Number(e.target.value) }));
           }}
         />
+        <label className="physics">
+          <input type="checkbox" checked={physics} onChange={(e) => setPhysics(e.target.checked)} />{" "}
+          physics
+        </label>
         <span className="now">
           {displayName(current)}
-          {target ? ` → ${displayName(target)}` : ""}
+          {target ? ` → ${displayName(target.mount)}` : ""}
           {queue.length > 1 ? ` (+${queue.length - 1} queued)` : ""}
         </span>
       </header>
       <main>
-        <Scene mount={current} target={target} t={t} preset={preset} />
+        <Scene
+          mount={current}
+          target={target?.mount}
+          hint={target?.hint}
+          t={t}
+          physics={physics}
+          epoch={state.epoch}
+          preset={preset}
+        />
       </main>
     </div>
   );

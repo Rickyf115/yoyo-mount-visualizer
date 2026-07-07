@@ -14,6 +14,25 @@ import { Mount, type Anchor, type ContactEvent, type Digit, type Side, type Spin
  * through the Mount schema so a buggy transform fails loudly.
  */
 
+/** A physical hand anchor the yo-yo swings around during an element. */
+export interface PivotSpec {
+  kind: "finger" | "thumb" | "loop";
+  side: Side;
+  digit?: Digit;
+}
+
+/**
+ * How a transition moves, for animation: the yo-yo (and the string it
+ * drags) swings around `pivot`. `sweep: "over"` forces the path over the
+ * pivot's apex — a pass or mount arcs over the finger even when start and
+ * end positions are close — while `"shortest"` takes the direct arc (a
+ * dismount just drops off). Purely descriptive: geometry stays in viz.
+ */
+export interface MotionHint {
+  pivot: PivotSpec;
+  sweep: "over" | "shortest";
+}
+
 export interface Element {
   /** Stable identifier used by trick steps (ElementRef). */
   name: string;
@@ -22,6 +41,8 @@ export interface Element {
   precondition(mount: Mount): string | null;
   /** Transform a legal source mount. Call through applyElement. */
   apply(mount: Mount): Mount;
+  /** Animation hint for a legal application; null = straight interpolation. */
+  motion(mount: Mount): MotionHint | null;
 }
 
 export class IllegalElementError extends Error {
@@ -130,6 +151,10 @@ export const mountElement: Element = {
       axle,
     ]);
   },
+  motion() {
+    // The yo-yo swings up and over the catching finger.
+    return { pivot: { kind: "finger", side: "L", digit: "index" }, sweep: "over" };
+  },
 };
 
 /**
@@ -154,6 +179,15 @@ export function passElement(spec: { side: Side; digit?: Digit; thumb?: boolean }
       const contacts = [...m.contacts];
       contacts.splice(contacts.length - 1, 0, { anchor: id, wrap: "over", direction: "ccw" });
       return result(m, `pass-${spec.side}-${spec.thumb ? "thumb" : target.digit}`, anchors, contacts);
+    },
+    motion() {
+      // The swing carries the string over the target digit.
+      return {
+        pivot: spec.thumb
+          ? { kind: "thumb", side: spec.side }
+          : { kind: "finger", side: spec.side, digit: target.digit! },
+        sweep: "over",
+      };
     },
   };
 }
@@ -180,6 +214,20 @@ export const hopElement: Element = {
     [contacts[g], contacts[g + 1]] = [contacts[g + 1]!, contacts[g]!];
     return result(m, "hop", m.anchors, contacts);
   },
+  motion(m) {
+    // The yo-yo pops over the anchor it is hopping across.
+    const g = gapIndex(m);
+    if (g === -1) return null;
+    const anchor = anchorMap(m).get(m.contacts[g + 1]!.anchor)!;
+    if (anchor.kind !== "finger" && anchor.kind !== "thumb") return null;
+    return {
+      pivot:
+        anchor.kind === "thumb"
+          ? { kind: "thumb", side: anchor.side! }
+          : { kind: "finger", side: anchor.side!, digit: anchor.digit! },
+      sweep: "over",
+    };
+  },
 };
 
 /** Drop every wrap and let the yo-yo swing free: back to a bare string. */
@@ -193,6 +241,11 @@ export const dismountElement: Element = {
   apply(m) {
     const contacts = [m.contacts[0]!, m.contacts[m.contacts.length - 1]!];
     return result(m, "dismount", m.anchors, contacts);
+  },
+  motion(m) {
+    // The yo-yo drops off and pendulums down from the throwhand.
+    const loop = anchorMap(m).get(m.contacts[0]!.anchor)!;
+    return { pivot: { kind: "loop", side: loop.side! }, sweep: "shortest" };
   },
 };
 

@@ -2,7 +2,7 @@
 
 String Trick Engine: model yo-yo string mounts topologically, visualize them in 3D, animate transitions, and eventually discover new tricks via pathfinding over the mount graph. See [ROADMAP.md](./ROADMAP.md) for the full plan; this repo is built one session at a time.
 
-**Status:** Session 3 complete — core schema + canonical mounts, the 3D visualizer, and elements with animated transitions.
+**Status:** Session 4 complete — core schema + canonical mounts, the 3D visualizer, elements with animated transitions, and string physics with swing-arc motion.
 
 **Scope assumption:** everything models **1A** — a single unresponsive yo-yo with the string attached to the throwhand. Other styles (5A counterweight, 3A, 4A offstring, responsive 2A) are future work; see `IDEAS.md`.
 
@@ -31,7 +31,16 @@ Every element result is checked against the fixture set by canonical hash in tes
 
 `pnpm dev` serves a react-three-fiber scene that renders any fixture mount: stylized hands, a yo-yo, and the string as a Catmull-Rom tube through control points derived by the first-pass `Layout` function ([`src/viz/layout.ts`](./src/viz/layout.ts)). Camera presets — **audience** (front), **player** (behind), **side** — are hot-switchable, with free orbit always on.
 
-The **timeline bar** drives transitions: throw buttons enter the graph (front throw / breakaway), element buttons show only the elements whose preconditions pass for the current mount and enqueue their results, and a play/pause + scrubber controls the animation — the string morphs between the two layouts (uniformly resampled splines, point-lerped) with the traversal readout switching at the halfway beat. Element-produced mounts are recognized topologically (canonical serialization, no hashing needed in the browser), so mounting from a breakaway displays as "trapeze". The demo button plays trapeze → double or nothing through the mid-swing pass.
+The **timeline bar** drives transitions: throw buttons enter the graph (front throw / breakaway), element buttons show only the elements whose preconditions pass for the current mount and enqueue their results, and a play/pause + scrubber controls the animation, with the traversal readout switching at the halfway beat. Element-produced mounts are recognized topologically (canonical serialization, no hashing needed in the browser), so mounting from a breakaway displays as "trapeze". The demo button plays trapeze → double or nothing through the mid-swing pass.
+
+### String physics and swing motion (Session 4)
+
+Transitions move in two layers:
+
+- **Swing arcs** ([`src/viz/motion.ts`](./src/viz/motion.ts)): each element carries a `motion` hint — which anchor the yo-yo pivots around and whether the arc must cross the pivot's apex. A mount swings up and over the catching finger, a pass makes a full loop around the target digit (start ≈ end), a hop pops across, a dismount pendulums straight down. One rule covers all of them: `sweep: "over"` takes the long way around whenever the short way would miss the apex.
+- **Verlet rope** ([`src/sim/rope.ts`](./src/sim/rope.ts)): the string is a fixed-timestep position-based rope (120 particles, distance constraints, gravity, capsule collision against the fingers) pinned at the layout's contact points — entry/apex/exit of every wrap — and at the yo-yo, which drags it along the swing arc. Hand pins switch from the old topology to the new at the halfway beat and the solver carries the string across, so it trails, tightens, and settles instead of morphing. Static mounts sag naturally.
+
+The layout module still computes *where* everything is pinned; physics only decides how the string hangs between pins. A **physics** checkbox in the timeline falls back to the Session 3 point-lerp morph for comparison.
 
 The geometry side lives in [`src/viz/rig.ts`](./src/viz/rig.ts): the player stands at the origin facing +z (the audience), and each spin has a default rig — side spin spreads the hands left/right with the string plane facing the audience; front spin reaches the non-throwhand forward with the string plane running toward the audience. Fingers are segments pointing along the string-plane normal (that's what lets string wrap *around* them), and contacts sit at knuckle-relative points: the slipknot rides the middle finger near the middle knuckle, wraps sit out toward the fingertip.
 
@@ -112,7 +121,8 @@ The ten staple mounts (dead string, trapeze, front mount, brother, 1.5, double o
 
 ```
 src/core/     schema, canonicalization, hashing, elements, name registry, fixture loading
-src/viz/      rig + Layout (pure, tested) and the react-three-fiber app
+src/viz/      rig + Layout + swing motion (pure, tested) and the react-three-fiber app
+src/sim/      Verlet rope (pure, tested)
 data/mounts/  one JSON fixture per mount
 data/tricks/  trick fixtures (mount paths)
 data/names.json  name registry keyed by canonical hash
