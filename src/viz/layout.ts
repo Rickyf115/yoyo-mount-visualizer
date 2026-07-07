@@ -1,5 +1,6 @@
 import type { Anchor, Mount } from "../core/schema.js";
 import { FINGER_RADIUS, anchorContactCenter, anchorFinger, type Rig, type Vec3 } from "./rig.js";
+import { add, cross, dist, dot, mid, norm, normalize, scale, sub, wrapDelta } from "./vec.js";
 
 /**
  * First-pass Layout(Mount, Rig): walk the mount's contact traversal and
@@ -36,21 +37,7 @@ export const WRAP_SPACING = 0.02;
 const YOYO_HANG = 0.38;
 const MOUNT_SAG = 0.16;
 const SEGMENT_SAG = 0.02;
-const AXLE_RADIUS = 0.012;
-
-const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-const norm = (a: Vec3): number => Math.hypot(a[0], a[1], a[2]);
-const normalize = (a: Vec3): Vec3 => scale(a, 1 / norm(a));
-const mid = (a: Vec3, b: Vec3): Vec3 => scale(add(a, b), 0.5);
-const dist = (a: Vec3, b: Vec3): number => norm(sub(a, b));
+export const AXLE_RADIUS = 0.012;
 
 /** World position of a hand anchor (loop/finger/thumb) under the rig. */
 function handAnchorPosition(anchor: Anchor, rig: Rig): Vec3 {
@@ -83,14 +70,6 @@ function yoyoCenter(mount: Mount, rig: Rig, anchorById: Map<string, Anchor>): Ve
   }
   const rest = mid(posAt(gapIndex - 1), posAt(gapIndex + 1));
   return add(rest, [0, -MOUNT_SAG, 0]);
-}
-
-/** Wrap an angle difference into (-π, π]. */
-function wrapDelta(x: number): number {
-  let d = x % (2 * Math.PI);
-  if (d > Math.PI) d -= 2 * Math.PI;
-  if (d <= -Math.PI) d += 2 * Math.PI;
-  return d;
 }
 
 /** Interpolate angles the short way around. */

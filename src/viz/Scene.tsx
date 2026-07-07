@@ -1,9 +1,18 @@
 import { Grid, OrbitControls } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type ComponentRef } from "react";
-import { CatmullRomCurve3, Quaternion, TubeGeometry, Vector3 } from "three";
+import { CatmullRomCurve3, Mesh, Quaternion, TubeGeometry, Vector3 } from "three";
+import type { MotionHint } from "../core/elements.js";
 import type { Mount } from "../core/schema.js";
-import { layoutMount, type YoYoPose } from "./layout.js";
+import { layoutMount, type MountLayout, type YoYoPose } from "./layout.js";
+import {
+  contactKinds,
+  layoutLength,
+  layoutPins,
+  pinsAt,
+  transitionPath,
+  type LayoutPin,
+} from "./motion.js";
 import {
   FINGER_RADIUS,
   defaultRig,
@@ -12,6 +21,15 @@ import {
   type Rig,
   type Vec3,
 } from "./rig.js";
+import {
+  createRope,
+  ropePoints,
+  setRestLength,
+  stepRope,
+  type Capsule,
+  type Pin,
+  type RopeState,
+} from "../sim/rope.js";
 
 export type CameraPresetName = "audience" | "player" | "side";
 
@@ -20,6 +38,10 @@ const CAMERA_PRESETS: Record<CameraPresetName, { position: Vec3; target: Vec3 }>
   player: { position: [0, 1.85, -1.05], target: [0, 0.9, 0.5] },
   side: { position: [2.4, 1.3, 0.2], target: [0, 1.0, 0] },
 };
+
+const PARTICLES = 120;
+const STRING_RADIUS = 0.0055;
+const smoothstep = (t: number) => t * t * (3 - 2 * t);
 
 function CameraRig({ preset }: { preset: CameraPresetName }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -88,12 +110,24 @@ function YoYo({ pose }: { pose: YoYoPose }) {
   );
 }
 
-function StringTube({ points }: { points: Vector3[] }) {
-  const geometry = useMemo(() => {
-    // Centripetal parameterization keeps the tight wrap arcs from overshooting.
-    const curve = new CatmullRomCurve3(points, false, "centripetal");
-    return new TubeGeometry(curve, 512, 0.0055, 8, false);
-  }, [points]);
+/** Uniformly resample a layout's spline (rope seeds and morph fallback). */
+function sampleString(points: Vec3[], samples: number): Vector3[] {
+  const curve = new CatmullRomCurve3(
+    points.map((p) => new Vector3(...p)),
+    false,
+    "centripetal",
+  );
+  return curve.getSpacedPoints(samples);
+}
+
+function stringGeometry(points: Vector3[]): TubeGeometry {
+  const curve = new CatmullRomCurve3(points, false, "centripetal");
+  return new TubeGeometry(curve, 300, STRING_RADIUS, 8, false);
+}
+
+/** Static-geometry string (physics off): point-lerped morph between layouts. */
+function MorphString({ points }: { points: Vector3[] }) {
+  const geometry = useMemo(() => stringGeometry(points), [points]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
     <mesh geometry={geometry}>
@@ -102,53 +136,114 @@ function StringTube({ points }: { points: Vector3[] }) {
   );
 }
 
-const SAMPLES = 200;
-const smoothstep = (t: number) => t * t * (3 - 2 * t);
+/** All hand geometry as rope colliders. */
+function ropeColliders(rig: Rig): Capsule[] {
+  const capsules: Capsule[] = [];
+  for (const hand of Object.values(rig.hands)) {
+    for (const finger of [...Object.values(hand.digits), hand.thumb]) {
+      capsules.push({ a: finger.base, b: finger.tip, radius: FINGER_RADIUS + STRING_RADIUS });
+    }
+    capsules.push({ a: hand.palm, b: hand.palm, radius: 0.055 + STRING_RADIUS });
+  }
+  return capsules;
+}
 
-/** Uniformly resample a layout's spline so two topologies can be point-lerped. */
-function sampleString(points: Vec3[]): Vector3[] {
-  const curve = new CatmullRomCurve3(
-    points.map((p) => new Vector3(...p)),
-    false,
-    "centripetal",
+interface PhysicsStringProps {
+  seed: Vec3[];
+  pins: Pin[];
+  restLength: number;
+  colliders: Capsule[];
+  /** Changing epoch reseeds the rope (hard jumps); transitions keep state. */
+  epoch: number;
+}
+
+function PhysicsString({ seed, pins, restLength, colliders, epoch }: PhysicsStringProps) {
+  const rope = useRef<RopeState | null>(null);
+  const mesh = useRef<Mesh>(null);
+  const latest = useRef({ pins, restLength, colliders });
+  latest.current = { pins, restLength, colliders };
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
+
+  useEffect(() => {
+    rope.current = createRope(seedRef.current);
+  }, [epoch]);
+
+  useFrame((_, delta) => {
+    if (!rope.current || !mesh.current) return;
+    setRestLength(rope.current, latest.current.restLength);
+    stepRope(rope.current, delta, latest.current.pins, latest.current.colliders);
+    const geometry = stringGeometry(ropePoints(rope.current).map((p) => new Vector3(...p)));
+    mesh.current.geometry.dispose();
+    mesh.current.geometry = geometry;
+  });
+
+  return (
+    <mesh ref={mesh}>
+      <meshStandardMaterial color="#f2f0df" roughness={0.9} />
+    </mesh>
   );
-  return curve.getSpacedPoints(SAMPLES);
 }
 
 export interface SceneProps {
   mount: Mount;
-  /** Transition target; when set, the string morphs mount → target at `t`. */
+  /** Transition target; when set, the transition animates mount → target at `t`. */
   target?: Mount | undefined;
+  /** The element's motion hint for the active transition. */
+  hint?: MotionHint | null | undefined;
   /** Transition progress 0..1. */
   t?: number;
+  physics?: boolean;
+  /** Incremented by hard jumps (dropdown/throw) to reseed the rope. */
+  epoch?: number;
   preset: CameraPresetName;
 }
 
-export function Scene({ mount, target, t = 0, preset }: SceneProps) {
+export function Scene({ mount, target, hint = null, t = 0, physics = true, epoch = 0, preset }: SceneProps) {
   // Elements never change spin, so one rig serves both ends of a transition.
   const rig: Rig = defaultRig(mount.spin);
   const layout = useMemo(() => layoutMount(mount, rig), [mount, rig]);
-  const targetLayout = useMemo(
-    () => (target ? layoutMount(target, rig) : null),
-    [target, rig],
+  const targetLayout = useMemo(() => (target ? layoutMount(target, rig) : null), [target, rig]);
+  const colliders = useMemo(() => ropeColliders(rig), [rig]);
+  const k = smoothstep(Math.min(Math.max(t, 0), 1));
+
+  // The yo-yo swings along the element's arc; the string is pinned to it.
+  const path = useMemo(
+    () => (targetLayout ? transitionPath(hint, rig, layout, targetLayout) : null),
+    [hint, rig, layout, targetLayout],
+  );
+  const yoyoCenter = path ? path(k) : layout.yoyo.center;
+  const yoyo: YoYoPose = { center: yoyoCenter, axis: rig.planeNormal };
+
+  // Pins: from-layout before the beat, to-layout after; gap/axle pins ride the yo-yo.
+  const pinsFor = (m: Mount, l: MountLayout): LayoutPin[] =>
+    layoutPins(l, contactKinds(m.anchors, m.contacts.map((c) => c.anchor)), PARTICLES);
+  const fromPins = useMemo(() => pinsFor(mount, layout), [mount, layout]);
+  const toPins = useMemo(
+    () => (target && targetLayout ? pinsFor(target, targetLayout) : null),
+    [target, targetLayout],
+  );
+  const past = targetLayout !== null && t >= 0.5;
+  const activeLayout = past ? targetLayout! : layout;
+  const pins = pinsAt(past ? toPins! : fromPins, activeLayout.yoyo.center, yoyoCenter);
+  const restLength =
+    layoutLength(layout) +
+    (targetLayout ? (layoutLength(targetLayout) - layoutLength(layout)) * k : 0);
+
+  const seed = useMemo(
+    () => sampleString(layout.controlPoints, PARTICLES - 1).map((p): Vec3 => [p.x, p.y, p.z]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [epoch],
   );
 
-  const { stringPoints, yoyo } = useMemo(() => {
-    const a = sampleString(layout.controlPoints);
-    if (!targetLayout) return { stringPoints: a, yoyo: layout.yoyo };
-    const b = sampleString(targetLayout.controlPoints);
-    const k = smoothstep(Math.min(Math.max(t, 0), 1));
-    const [c0, c1] = [layout.yoyo.center, targetLayout.yoyo.center];
-    const center: Vec3 = [
-      c0[0] + (c1[0] - c0[0]) * k,
-      c0[1] + (c1[1] - c0[1]) * k,
-      c0[2] + (c1[2] - c0[2]) * k,
-    ];
-    return {
-      stringPoints: a.map((p, i) => p.clone().lerp(b[i]!, k)),
-      yoyo: { center, axis: layout.yoyo.axis },
-    };
-  }, [layout, targetLayout, t]);
+  // Fallback (physics off): point-lerped morph, as in Session 3.
+  const morphPoints = useMemo(() => {
+    if (physics) return [];
+    const a = sampleString(layout.controlPoints, 200);
+    if (!targetLayout) return a;
+    const b = sampleString(targetLayout.controlPoints, 200);
+    return a.map((p, i) => p.clone().lerp(b[i]!, k));
+  }, [physics, layout, targetLayout, k]);
 
   return (
     <Canvas camera={{ fov: 45, position: [...CAMERA_PRESETS.audience.position] }}>
@@ -159,7 +254,17 @@ export function Scene({ mount, target, t = 0, preset }: SceneProps) {
       <Hand pose={rig.hands.R} label="R" />
       <Hand pose={rig.hands.L} label="L" />
       <YoYo pose={yoyo} />
-      <StringTube points={stringPoints} />
+      {physics ? (
+        <PhysicsString
+          seed={seed}
+          pins={pins}
+          restLength={restLength}
+          colliders={colliders}
+          epoch={epoch}
+        />
+      ) : (
+        <MorphString points={morphPoints} />
+      )}
       <Grid
         position={[0, 0, 0]}
         args={[8, 8]}
