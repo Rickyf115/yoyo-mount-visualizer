@@ -1,0 +1,18 @@
+{
+  "id": "double-brother",
+  "name": "double brother",
+  "anchors": [
+    { "id": "th-loop", "kind": "loop", "side": "R" },
+    { "id": "th-index", "kind": "finger", "side": "R" },
+    { "id": "yoyo-gap", "kind": "gap" },
+    { "id": "axle", "kind": "axle" }
+  ],
+  "contacts": [
+    { "anchor": "th-loop", "wrap": "over", "direction": "cw" },
+    { "anchor": "th-index", "wrap": "over", "direction": "cw" },
+    { "anchor": "th-index", "wrap": "over", "direction": "cw" },
+    { "anchor": "yoyo-gap", "wrap": "over", "direction": "cw" },
+    { "anchor": "axle", "wrap": "over", "direction": "cw" }
+  ],
+  "crossings": []
+}

@@ -1,0 +1,23 @@
+{
+  "name": "yoyo-mount-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "String Trick Engine — model yo-yo string mounts topologically, visualize them in 3D, and discover new tricks via pathfinding over the mount graph.",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "hashes": "tsx scripts/print-hashes.ts"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

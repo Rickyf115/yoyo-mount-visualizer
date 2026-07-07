@@ -1,0 +1,42 @@
+[
+  {
+    "mountHash": "4c5af2206575bd347916cd0946ddc47f5da510c6904132fb5bb9e22316c229af",
+    "names": ["dead string"],
+    "generated": false
+  },
+  {
+    "mountHash": "9684e3a7d540a14a0bb57883c2e8803fe14f9684563ab85c13dd51ce20362daa",
+    "names": ["trapeze"],
+    "generated": false
+  },
+  {
+    "mountHash": "209cb8ca30e211f306d6be1847098ecb2097e90a8570488bbe5e8e979d453bc6",
+    "names": ["brother", "undermount"],
+    "generated": false
+  },
+  {
+    "mountHash": "c2308525e46bed81e090bf4dcd84ecbaa51fb16862d6ebb982b9db355eb5dea6",
+    "names": ["1.5 mount"],
+    "generated": false
+  },
+  {
+    "mountHash": "1fa1c6afdf313bf98f7aa607550c7844febe62d147c9e6d804c45e4f2a5ba5c2",
+    "names": ["double or nothing"],
+    "generated": false
+  },
+  {
+    "mountHash": "b6f136fd5a37289c0c58e165a8c5506622c916669bee190a61b80a0409c09558",
+    "names": ["double brother"],
+    "generated": false
+  },
+  {
+    "mountHash": "7d62a558297453c49f55d4cc4521532d9c9f71b6ce3ab277cea8e8ab88559fe8",
+    "names": ["triple or nothing"],
+    "generated": false
+  },
+  {
+    "mountHash": "04a66ae6a2581b3bca4c983e73cfa1e680e33036ea3f00306c06bd54c8085ba2",
+    "names": ["split bottom mount"],
+    "generated": false
+  }
+]

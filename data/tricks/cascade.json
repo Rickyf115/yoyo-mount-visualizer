@@ -1,0 +1,12 @@
+{
+  "name": "Cascade",
+  "start": "dead-string",
+  "steps": [
+    { "to": "trapeze" },
+    { "to": "one-and-a-half" },
+    { "to": "double-or-nothing" },
+    { "to": "trapeze" },
+    { "to": "dead-string" }
+  ],
+  "notes": "Pure mount-sequence fixture: every step is unpinned (no element), meaning 'any legal element that maps here' — the engine infers connectors once elements exist (Session 3+). The mount sequence is a provisional skeleton to be verified against the actual trick; refine the data, never the engine, if it proves wrong."
+}
