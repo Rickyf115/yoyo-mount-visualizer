@@ -1,11 +1,18 @@
 import type { Anchor, Mount } from "../core/schema.js";
-import type { Rig, Vec3 } from "./rig.js";
+import { FINGER_RADIUS, anchorContactCenter, anchorFinger, type Rig, type Vec3 } from "./rig.js";
 
 /**
  * First-pass Layout(Mount, Rig): walk the mount's contact traversal and
  * derive 3D control points for the string spline plus the yo-yo's pose.
  * Purely geometric heuristics — no physics (that's Session 4). Topology
  * decides everything structural; this module only decides *where*.
+ *
+ * Hand contacts are rendered as *wrap arcs*: instead of a single point, the
+ * string follows an arc around the finger cylinder from the incoming strand,
+ * over (or under) the finger, to the outgoing strand — so a trapeze visibly
+ * opens up around the non-throwhand index finger, and the slipknot renders
+ * as a coil around the middle finger with the tail exiting toward the first
+ * segment.
  */
 
 export interface YoYoPose {
@@ -17,36 +24,37 @@ export interface YoYoPose {
 export interface MountLayout {
   /** Control points for a Catmull-Rom spline, player end → axle. */
   controlPoints: Vec3[];
+  /** Per-contact point runs, parallel to mount.contacts (arcs for hand contacts). */
+  contactArcs: Vec3[][];
   yoyo: YoYoPose;
 }
 
-const FINGER_RADIUS = 0.033;
+/** String rides this far off the finger axis. */
+export const WRAP_RADIUS = FINGER_RADIUS + 0.006;
+/** Repeated wraps on one anchor stack along the finger by this much. */
+export const WRAP_SPACING = 0.02;
 const YOYO_HANG = 0.38;
 const MOUNT_SAG = 0.16;
 const SEGMENT_SAG = 0.02;
-/** Repeated wraps on one anchor stack along the plane normal by this much. */
-const WRAP_SPACING = 0.028;
 const AXLE_RADIUS = 0.012;
 
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Vec3, b: Vec3): Vec3 => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const norm = (a: Vec3): number => Math.hypot(a[0], a[1], a[2]);
+const normalize = (a: Vec3): Vec3 => scale(a, 1 / norm(a));
 const mid = (a: Vec3, b: Vec3): Vec3 => scale(add(a, b), 0.5);
-const dist = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const dist = (a: Vec3, b: Vec3): number => norm(sub(a, b));
 
 /** World position of a hand anchor (loop/finger/thumb) under the rig. */
 function handAnchorPosition(anchor: Anchor, rig: Rig): Vec3 {
-  const handPose = rig.hands[anchor.side!];
-  switch (anchor.kind) {
-    case "loop":
-      // The slipknot sits on the throwhand middle finger.
-      return handPose.digits.middle;
-    case "finger":
-      return handPose.digits[anchor.digit!];
-    case "thumb":
-      return handPose.thumb;
-    default:
-      throw new Error(`anchor "${anchor.id}" of kind "${anchor.kind}" is not a hand anchor`);
-  }
+  return anchorContactCenter(rig, anchor);
 }
 
 /**
@@ -67,17 +75,95 @@ function yoyoCenter(mount: Mount, rig: Rig, anchorById: Map<string, Anchor>): Ve
   }
   const before = kindAt(gapIndex - 1);
   const after = kindAt(gapIndex + 1);
-  if (after.kind === "axle") {
-    if (before.kind === "gap") {
-      throw new Error(`mount "${mount.id}": consecutive gap contacts are not supported yet`);
-    }
-    return add(posAt(gapIndex - 1), [0, -YOYO_HANG, 0]);
-  }
   if (before.kind === "gap" || after.kind === "gap") {
     throw new Error(`mount "${mount.id}": consecutive gap contacts are not supported yet`);
   }
+  if (after.kind === "axle") {
+    return add(posAt(gapIndex - 1), [0, -YOYO_HANG, 0]);
+  }
   const rest = mid(posAt(gapIndex - 1), posAt(gapIndex + 1));
   return add(rest, [0, -MOUNT_SAG, 0]);
+}
+
+/** Wrap an angle difference into (-π, π]. */
+function wrapDelta(x: number): number {
+  let d = x % (2 * Math.PI);
+  if (d > Math.PI) d -= 2 * Math.PI;
+  if (d <= -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+/** Interpolate angles the short way around. */
+function lerpAngle(a: number, b: number, t: number): number {
+  return a + wrapDelta(b - a) * t;
+}
+
+/**
+ * Arc of points around a finger at `center`, radius WRAP_RADIUS, in the
+ * plane perpendicular to the finger axis. The arc runs from the incoming
+ * strand's direction, through the over/under apex, to the outgoing strand's
+ * direction. With no incoming strand (the slipknot loop starting the
+ * string), it coils most of the way around the finger before exiting.
+ */
+function wrapArc(
+  center: Vec3,
+  fingerAxis: Vec3,
+  entry: Vec3 | undefined,
+  exit: Vec3,
+  over: boolean,
+): Vec3[] {
+  const axis = normalize(fingerAxis);
+  // In-plane basis: e1 points world-up (projected), e2 completes it.
+  const upProj = sub([0, 1, 0], scale(axis, dot([0, 1, 0], axis)));
+  const e1 = norm(upProj) > 1e-6 ? normalize(upProj) : normalize(cross(axis, [1, 0, 0]));
+  const e2 = normalize(cross(axis, e1));
+  const angleOf = (p: Vec3): number => {
+    const v = sub(p, center);
+    return Math.atan2(dot(v, e2), dot(v, e1));
+  };
+  const pointAt = (theta: number): Vec3 =>
+    add(center, add(scale(e1, WRAP_RADIUS * Math.cos(theta)), scale(e2, WRAP_RADIUS * Math.sin(theta))));
+
+  const apex = over ? 0 : Math.PI;
+
+  // A taut strand from world point P touches the finger circle at one of the
+  // two tangent angles θP ± acos(r/d) — that offset is what makes the two
+  // strands of a wrap visibly separate around the finger.
+  const tangentCandidates = (p: Vec3): [number, number] => {
+    const theta = angleOf(p);
+    const d = norm(sub(p, center));
+    const beta = d > WRAP_RADIUS ? Math.acos(WRAP_RADIUS / d) : Math.PI / 2;
+    return [theta + beta, theta - beta];
+  };
+  const closerToApex = (cands: [number, number]): number =>
+    Math.abs(wrapDelta(cands[0] - apex)) <= Math.abs(wrapDelta(cands[1] - apex))
+      ? cands[0]
+      : cands[1];
+
+  const exitCands = tangentCandidates(exit);
+  if (entry === undefined) {
+    // Slipknot coil: come from behind the finger, all the way around, out.
+    const exitTangent = closerToApex(exitCands);
+    const start = exitTangent + Math.PI * 1.65;
+    const steps = 7;
+    return Array.from({ length: steps }, (_, i) =>
+      pointAt(start + ((exitTangent - start) * i) / (steps - 1)),
+    );
+  }
+
+  const entryTangent = closerToApex(tangentCandidates(entry));
+  // Exit on the opposite rotational side of the apex when possible, so a
+  // trapeze's strands leave the finger splayed apart rather than overlapping.
+  const entrySide = Math.sign(wrapDelta(entryTangent - apex));
+  const opposite = exitCands.find((c) => Math.sign(wrapDelta(c - apex)) === -entrySide);
+  const exitTangent = entrySide !== 0 && opposite !== undefined ? opposite : closerToApex(exitCands);
+
+  // entry → apex → exit, each leg the short way around.
+  const points: Vec3[] = [];
+  const steps = 3;
+  for (let i = 0; i < steps; i++) points.push(pointAt(lerpAngle(entryTangent, apex, i / steps)));
+  for (let i = 0; i <= steps; i++) points.push(pointAt(lerpAngle(apex, exitTangent, i / steps)));
+  return points;
 }
 
 export function layoutMount(mount: Mount, rig: Rig): MountLayout {
@@ -87,44 +173,51 @@ export function layoutMount(mount: Mount, rig: Rig): MountLayout {
     axis: rig.planeNormal,
   };
 
-  // Contact points: anchor surface positions, with over/under expressed
-  // vertically and repeated wraps on one anchor stacked along the plane
-  // normal so double wraps stay legible.
+  // Pass 1 — contact centers. Repeated wraps on one anchor stack along the
+  // finger toward the tip so double wraps stay legible.
   const visits = new Map<string, number>();
-  const contactPoints: Vec3[] = mount.contacts.map((contact) => {
+  const centers: Vec3[] = mount.contacts.map((contact) => {
     const anchor = anchorById.get(contact.anchor)!;
     const visit = visits.get(contact.anchor) ?? 0;
     visits.set(contact.anchor, visit + 1);
-    const stack = scale(rig.planeNormal, visit * WRAP_SPACING);
-
-    let point: Vec3;
     switch (anchor.kind) {
       case "gap":
-        point = add(yoyo.center, [0, AXLE_RADIUS, 0]);
-        break;
+        return add(yoyo.center, [0, AXLE_RADIUS, 0]);
       case "axle":
-        point = yoyo.center;
-        break;
+        return yoyo.center;
       default: {
-        const tip = handAnchorPosition(anchor, rig);
-        const overUnder: Vec3 = [0, contact.wrap === "over" ? FINGER_RADIUS : -FINGER_RADIUS, 0];
-        point = add(tip, overUnder);
+        const finger = anchorFinger(rig, anchor);
+        const along = normalize(sub(finger.tip, finger.base));
+        return add(handAnchorPosition(anchor, rig), scale(along, visit * WRAP_SPACING));
       }
     }
-    return add(point, stack);
   });
 
-  // Insert a slightly sagged midpoint into each span so the spline reads as
-  // string rather than wire.
+  // Pass 2 — per-contact point runs: wrap arcs around fingers (using the
+  // neighbouring contact centers to aim the tangents), single points at the
+  // gap and axle.
+  const contactArcs: Vec3[][] = mount.contacts.map((contact, i) => {
+    const anchor = anchorById.get(contact.anchor)!;
+    const center = centers[i]!;
+    if (anchor.kind === "gap" || anchor.kind === "axle") return [center];
+    const finger = anchorFinger(rig, anchor);
+    const axis = sub(finger.tip, finger.base);
+    const entry = anchor.kind === "loop" && i === 0 ? undefined : centers[i - 1]!;
+    return wrapArc(center, axis, entry, centers[i + 1]!, contact.wrap === "over");
+  });
+
+  // Assemble: join the runs, inserting a slightly sagged midpoint into each
+  // span so the spline reads as string rather than wire.
   const controlPoints: Vec3[] = [];
-  contactPoints.forEach((point, i) => {
+  contactArcs.forEach((run, i) => {
     if (i > 0) {
-      const prev = contactPoints[i - 1]!;
-      const sag = Math.min(SEGMENT_SAG, dist(prev, point) * 0.08);
-      controlPoints.push(add(mid(prev, point), [0, -sag, 0]));
+      const prev = controlPoints[controlPoints.length - 1]!;
+      const next = run[0]!;
+      const sag = Math.min(SEGMENT_SAG, dist(prev, next) * 0.08);
+      controlPoints.push(add(mid(prev, next), [0, -sag, 0]));
     }
-    controlPoints.push(point);
+    controlPoints.push(...run);
   });
 
-  return { controlPoints, yoyo };
+  return { controlPoints, contactArcs, yoyo };
 }

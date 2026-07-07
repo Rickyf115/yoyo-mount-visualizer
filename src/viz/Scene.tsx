@@ -1,10 +1,17 @@
-import { Grid, Line, OrbitControls } from "@react-three/drei";
+import { Grid, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type ComponentRef } from "react";
-import { CatmullRomCurve3, TubeGeometry, Vector3 } from "three";
+import { CatmullRomCurve3, Quaternion, TubeGeometry, Vector3 } from "three";
 import type { Mount } from "../core/schema.js";
 import { layoutMount, type YoYoPose } from "./layout.js";
-import { defaultRig, type HandPose, type Rig, type Vec3 } from "./rig.js";
+import {
+  FINGER_RADIUS,
+  defaultRig,
+  type FingerPose,
+  type HandPose,
+  type Rig,
+  type Vec3,
+} from "./rig.js";
 
 export type CameraPresetName = "audience" | "player" | "side";
 
@@ -26,23 +33,36 @@ function CameraRig({ preset }: { preset: CameraPresetName }) {
   return <OrbitControls ref={controls} makeDefault />;
 }
 
+function Finger({ finger, color }: { finger: FingerPose; color: string }) {
+  const { position, quaternion, length } = useMemo(() => {
+    const base = new Vector3(...finger.base);
+    const tip = new Vector3(...finger.tip);
+    const dir = tip.clone().sub(base);
+    return {
+      position: base.clone().add(tip).multiplyScalar(0.5),
+      quaternion: new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), dir.clone().normalize()),
+      length: dir.length(),
+    };
+  }, [finger]);
+  return (
+    <mesh position={position} quaternion={quaternion}>
+      <capsuleGeometry args={[FINGER_RADIUS, length, 6, 14]} />
+      <meshStandardMaterial color={color} roughness={0.7} />
+    </mesh>
+  );
+}
+
 function Hand({ pose, label }: { pose: HandPose; label: "L" | "R" }) {
   const color = label === "R" ? "#d98e73" : "#73a8d9";
-  const tips = [...Object.values(pose.digits), pose.thumb];
+  const fingers = [...Object.values(pose.digits), pose.thumb];
   return (
     <group>
       <mesh position={[...pose.palm]}>
-        <sphereGeometry args={[0.05, 24, 24]} />
+        <sphereGeometry args={[0.055, 24, 24]} />
         <meshStandardMaterial color={color} roughness={0.7} />
       </mesh>
-      {tips.map((tip, i) => (
-        <group key={i}>
-          <mesh position={[...tip]}>
-            <sphereGeometry args={[0.03, 16, 16]} />
-            <meshStandardMaterial color={color} roughness={0.7} />
-          </mesh>
-          <Line points={[pose.palm, tip]} color={color} lineWidth={5} transparent opacity={0.55} />
-        </group>
+      {fingers.map((finger, i) => (
+        <Finger key={i} finger={finger} color={color} />
       ))}
     </group>
   );
@@ -70,13 +90,13 @@ function YoYo({ pose }: { pose: YoYoPose }) {
 
 function StringTube({ points }: { points: Vec3[] }) {
   const geometry = useMemo(() => {
+    // Centripetal parameterization keeps the tight wrap arcs from overshooting.
     const curve = new CatmullRomCurve3(
       points.map((p) => new Vector3(...p)),
       false,
-      "catmullrom",
-      0.6,
+      "centripetal",
     );
-    return new TubeGeometry(curve, 256, 0.0055, 8, false);
+    return new TubeGeometry(curve, 512, 0.0055, 8, false);
   }, [points]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
