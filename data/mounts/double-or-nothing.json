@@ -1,0 +1,21 @@
+{
+  "id": "double-or-nothing",
+  "name": "double or nothing",
+  "spin": "side",
+  "anchors": [
+    { "id": "th-loop", "kind": "loop", "side": "R" },
+    { "id": "yoyo-gap", "kind": "gap" },
+    { "id": "nth-index", "kind": "finger", "side": "L", "digit": "index" },
+    { "id": "th-index", "kind": "finger", "side": "R", "digit": "index" },
+    { "id": "axle", "kind": "axle" }
+  ],
+  "contacts": [
+    { "anchor": "th-loop", "wrap": "over", "direction": "cw" },
+    { "anchor": "yoyo-gap", "wrap": "over", "direction": "ccw" },
+    { "anchor": "nth-index", "wrap": "over", "direction": "ccw" },
+    { "anchor": "th-index", "wrap": "over", "direction": "ccw" },
+    { "anchor": "nth-index", "wrap": "over", "direction": "ccw" },
+    { "anchor": "axle", "wrap": "over", "direction": "cw" }
+  ],
+  "crossings": []
+}
