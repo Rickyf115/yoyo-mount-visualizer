@@ -46,6 +46,14 @@ describe("yoyoArcPath", () => {
     expect(maxY).toBeLessThan(pivot[1]);
   });
 
+  it("with sweep=under crosses beneath the pivot even when the short way would not", () => {
+    // both endpoints sit above the pivot: the underpass scoops beneath it
+    const pivot: [number, number, number] = [0, 1.0, 0];
+    const path = yoyoArcPath([0.3, 1.3, 0], [-0.3, 1.25, 0], pivot, [0, 0, 1], "under");
+    const minY = Math.min(...sample(path).map((p) => p[1]!));
+    expect(minY).toBeLessThan(pivot[1]);
+  });
+
   it("makes a full loop over the pivot when start and end coincide", () => {
     const start: [number, number, number] = [0.4, 0.6, 0];
     const pivot: [number, number, number] = [0, 1.1, 0];

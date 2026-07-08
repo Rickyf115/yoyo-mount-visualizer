@@ -23,20 +23,26 @@ export interface PivotSpec {
 
 /**
  * How a transition moves, for animation: the yo-yo (and the string it
- * drags) swings around `pivot`. `sweep: "over"` forces the path over the
- * pivot's apex — a pass or mount arcs over the finger even when start and
- * end positions are close — while `"shortest"` takes the direct arc (a
- * dismount just drops off). Purely descriptive: geometry stays in viz.
+ * drags) swings around `pivot`. `sweep: "over"` forces the path across the
+ * apex above the pivot — a pass or mount arcs over the finger even when
+ * start and end positions are close — `"under"` forces it below (an
+ * underpass scoops beneath the finger), and `"shortest"` takes the direct
+ * arc (a dismount just drops off). Purely descriptive: geometry stays in viz.
  */
 export interface MotionHint {
   pivot: PivotSpec;
-  sweep: "over" | "shortest";
+  sweep: "over" | "under" | "shortest";
 }
 
 export interface Element {
   /** Stable identifier used by trick steps (ElementRef). */
   name: string;
   description: string;
+  /**
+   * Rough execution difficulty (1 easy … 5 hard). Not a pathfinding cost —
+   * a filter/sort signal for browsing enumerated paths (Sessions 7–8).
+   */
+  difficulty: number;
   /** Why the element cannot apply to this mount, or null when it is legal. */
   precondition(mount: Mount): string | null;
   /** Transform a legal source mount. Call through applyElement. */
@@ -136,6 +142,7 @@ function result(source: Mount, label: string, anchors: Anchor[], contacts: Conta
 export const mountElement: Element = {
   name: "mount",
   description: "swing the yo-yo onto the string over the non-throwhand index",
+  difficulty: 1,
   precondition(m) {
     if (m.contacts.length !== 2) return "requires a bare string (no wraps or mounts)";
     return noCrossings(m);
@@ -157,19 +164,40 @@ export const mountElement: Element = {
   },
 };
 
+export interface PassSpec {
+  side: Side;
+  digit?: Digit;
+  thumb?: boolean;
+  /** Scoop beneath the target instead of over it (an underpass). */
+  under?: boolean;
+  /**
+   * Whip a loop of slack over the target instead of swinging the yo-yo.
+   * Topologically identical to the plain pass — a *parallel edge* in the
+   * mount multigraph (same endpoints, different element, harder).
+   */
+  slack?: boolean;
+}
+
 /**
- * Pass the string's tail over a finger or thumb, adding a wrap just before
- * the axle winding. Two passes take a trapeze to double or nothing (via the
- * mid-swing state after the first pass).
+ * Pass the string's tail over (or under) a finger or thumb, adding a wrap
+ * just before the axle winding. Two passes take a trapeze to double or
+ * nothing (via the mid-swing state after the first pass); the slack variant
+ * reaches the same mounts by whipping the string instead of the yo-yo.
  */
-export function passElement(spec: { side: Side; digit?: Digit; thumb?: boolean }): Element {
+export function passElement(spec: PassSpec): Element {
   const target: AnchorSpec = spec.thumb
     ? { kind: "thumb", side: spec.side }
     : { kind: "finger", side: spec.side, digit: spec.digit ?? "index" };
   const targetLabel = spec.thumb ? `${spec.side} thumb` : `${spec.side} ${target.digit}`;
+  const family = spec.slack ? "slack-pass" : spec.under ? "underpass" : "pass";
+  const name = `${family}-${spec.side}-${spec.thumb ? "thumb" : target.digit}`;
+  const wrap = spec.under ? "under" : "over";
   return {
-    name: `pass-${spec.side}-${spec.thumb ? "thumb" : target.digit}`,
-    description: `pass the string's tail over the ${targetLabel}`,
+    name,
+    description: spec.slack
+      ? `whip a loop of slack over the ${targetLabel}`
+      : `${spec.under ? "carry the string's tail under" : "pass the string's tail over"} the ${targetLabel}`,
+    difficulty: spec.slack ? 4 : spec.under ? 3 : spec.thumb ? 3 : 2,
     precondition(m) {
       if (gapIndex(m) === -1) return "requires the yo-yo mounted on the string";
       return noCrossings(m);
@@ -177,16 +205,17 @@ export function passElement(spec: { side: Side; digit?: Digit; thumb?: boolean }
     apply(m) {
       const { anchors, id } = ensureAnchor(m.anchors, target);
       const contacts = [...m.contacts];
-      contacts.splice(contacts.length - 1, 0, { anchor: id, wrap: "over", direction: "ccw" });
-      return result(m, `pass-${spec.side}-${spec.thumb ? "thumb" : target.digit}`, anchors, contacts);
+      contacts.splice(contacts.length - 1, 0, { anchor: id, wrap, direction: "ccw" });
+      return result(m, name, anchors, contacts);
     },
     motion() {
-      // The swing carries the string over the target digit.
+      // A slack pass moves string, not the yo-yo — no swing arc.
+      if (spec.slack) return null;
       return {
         pivot: spec.thumb
           ? { kind: "thumb", side: spec.side }
           : { kind: "finger", side: spec.side, digit: target.digit! },
-        sweep: "over",
+        sweep: spec.under ? "under" : "over",
       };
     },
   };
@@ -199,6 +228,7 @@ export function passElement(spec: { side: Side; digit?: Digit; thumb?: boolean }
 export const hopElement: Element = {
   name: "hop",
   description: "hop the yo-yo over the next anchor toward the string's end",
+  difficulty: 2,
   precondition(m) {
     const g = gapIndex(m);
     if (g === -1) return "requires the yo-yo mounted on the string";
@@ -230,10 +260,83 @@ export const hopElement: Element = {
   },
 };
 
+/** Hop the yo-yo the other way: back over the previous anchor. */
+export const hopBackElement: Element = {
+  name: "hop-back",
+  description: "hop the yo-yo back over the previous anchor toward the loop",
+  difficulty: 2,
+  precondition(m) {
+    const g = gapIndex(m);
+    if (g === -1) return "requires the yo-yo mounted on the string";
+    const anchors = anchorMap(m);
+    const prev = anchors.get(m.contacts[g - 1]!.anchor)!;
+    if (prev.kind === "loop") return "the yo-yo is already on the first strand";
+    if (prev.kind === "gap") return "consecutive gap contacts are not supported";
+    return noCrossings(m);
+  },
+  apply(m) {
+    const g = gapIndex(m);
+    const contacts = [...m.contacts];
+    [contacts[g - 1], contacts[g]] = [contacts[g]!, contacts[g - 1]!];
+    return result(m, "hop-back", m.anchors, contacts);
+  },
+  motion(m) {
+    const g = gapIndex(m);
+    if (g === -1) return null;
+    const anchor = anchorMap(m).get(m.contacts[g - 1]!.anchor)!;
+    if (anchor.kind !== "finger" && anchor.kind !== "thumb") return null;
+    return {
+      pivot:
+        anchor.kind === "thumb"
+          ? { kind: "thumb", side: anchor.side! }
+          : { kind: "finger", side: anchor.side!, digit: anchor.digit! },
+      sweep: "over",
+    };
+  },
+};
+
+/**
+ * Roll the yo-yo one full loop around its supporting anchor. Topologically
+ * the identity — a *self-edge* in the mount multigraph, which is exactly
+ * what repeaters are made of (cycles are legitimate tricks, Session 7).
+ */
+export const rollElement: Element = {
+  name: "roll",
+  description: "roll the yo-yo a full loop around its supporting anchor (repeater)",
+  difficulty: 2,
+  precondition(m) {
+    const g = gapIndex(m);
+    if (g === -1) return "requires the yo-yo mounted on the string";
+    const anchors = anchorMap(m);
+    const next = anchors.get(m.contacts[g + 1]!.anchor)!;
+    if (next.kind !== "finger" && next.kind !== "thumb") {
+      return "requires a finger or thumb after the yo-yo to roll around";
+    }
+    return noCrossings(m);
+  },
+  apply(m) {
+    return result(m, "roll", m.anchors, [...m.contacts]);
+  },
+  motion(m) {
+    const g = gapIndex(m);
+    if (g === -1) return null;
+    const anchor = anchorMap(m).get(m.contacts[g + 1]!.anchor)!;
+    if (anchor.kind !== "finger" && anchor.kind !== "thumb") return null;
+    return {
+      pivot:
+        anchor.kind === "thumb"
+          ? { kind: "thumb", side: anchor.side! }
+          : { kind: "finger", side: anchor.side!, digit: anchor.digit! },
+      sweep: "over", // start ≈ end ⇒ a full 2π loop over the support
+    };
+  },
+};
+
 /** Drop every wrap and let the yo-yo swing free: back to a bare string. */
 export const dismountElement: Element = {
   name: "dismount",
   description: "drop all wraps; the yo-yo swings free on a bare string",
+  difficulty: 1,
   precondition(m) {
     if (gapIndex(m) === -1) return "requires a mounted yo-yo";
     return noCrossings(m);
@@ -249,13 +352,20 @@ export const dismountElement: Element = {
   },
 };
 
-/** The working element set. Broadens substantially in Session 5. */
+/** The working element library (Session 5). */
 export const STANDARD_ELEMENTS: readonly Element[] = [
   mountElement,
-  hopElement,
   dismountElement,
+  hopElement,
+  hopBackElement,
+  rollElement,
   passElement({ side: "R", digit: "index" }),
   passElement({ side: "L", digit: "index" }),
+  passElement({ side: "R", thumb: true }),
+  passElement({ side: "R", digit: "index", under: true }),
+  passElement({ side: "L", digit: "index", under: true }),
+  passElement({ side: "R", digit: "index", slack: true }),
+  passElement({ side: "L", digit: "index", slack: true }),
 ];
 
 // ---------------------------------------------------------------------------

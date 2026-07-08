@@ -15,6 +15,7 @@ const tricks = loadTrickFixtures();
 
 const STAPLES = [
   "dead-string",
+  "dead-string-side",
   "trapeze",
   "brother",
   "one-and-a-half",
