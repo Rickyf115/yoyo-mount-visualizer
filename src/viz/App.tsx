@@ -4,13 +4,14 @@ import {
   THROWS,
   applyElement,
   legalElements,
+  mountElement,
   passElement,
   type Element,
-  type MotionHint,
 } from "../core/elements.js";
 import type { Mount } from "../core/schema.js";
 import { MOUNTS, displayName, fixtureTwin, mountById } from "./mounts.js";
 import { Scene, type CameraPresetName } from "./Scene.js";
+import { extendBurst, frameAt, type BurstStep, type Timeline } from "./timeline.js";
 
 const PRESETS: CameraPresetName[] = ["audience", "player", "side"];
 const TRANSITION_SECONDS = 1.4;
@@ -37,80 +38,74 @@ function traversalSummary(mount: Mount): string {
     .join(" → ");
 }
 
-interface QueuedTransition {
-  mount: Mount;
-  /** Swing-arc hint from the element that produced this target. */
-  hint: MotionHint | null;
-}
-
 interface PlayerState {
-  current: Mount;
-  /** Upcoming transitions, animated one at a time. */
-  queue: QueuedTransition[];
-  /** Progress through the current transition, 0..1. */
-  t: number;
+  timeline: Timeline;
   /** Bumped on hard jumps (dropdown/throw) so the rope reseeds. */
   epoch: number;
 }
 
+/** Tricks start from a throw: the app opens on a breakaway dead string. */
+const INITIAL: PlayerState = {
+  timeline: { base: THROWS.breakaway.result(), burst: [], raw: 0 },
+  epoch: 0,
+};
+
+const step = (element: Element, from: Mount): BurstStep => ({
+  mount: applyElement(element, from),
+  hint: element.motion(from),
+});
+
 export function App() {
-  const [state, setState] = useState<PlayerState>({
-    current: mountById("trapeze"),
-    queue: [],
-    t: 0,
-    epoch: 0,
-  });
+  const [state, setState] = useState<PlayerState>(INITIAL);
   const [playing, setPlaying] = useState(true);
   const [physics, setPhysics] = useState(true);
   const [preset, setPreset] = useState<CameraPresetName>("audience");
 
-  const { current, queue, t } = state;
-  const target = queue[0];
+  const { timeline, epoch } = state;
+  const frame = frameAt(timeline);
   // The mount the *next* enqueued element applies to (chaining while playing).
-  const tail = queue[queue.length - 1]?.mount ?? current;
+  const tail = timeline.burst[timeline.burst.length - 1]?.mount ?? timeline.base;
   // Once past the beat, the traversal readout switches to the incoming topology.
-  const shown = target && t >= 0.5 ? target.mount : current;
+  const shown = frame.target && frame.t >= 0.5 ? frame.target.mount : frame.current;
 
   useEffect(() => {
     if (!playing) return;
     let raf: number;
     let last = performance.now();
-    const step = (now: number) => {
+    const tick = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
       setState((s) => {
-        if (s.queue.length === 0) return s;
-        const nt = s.t + dt / TRANSITION_SECONDS;
-        if (nt >= 1) {
-          return { current: s.queue[0]!.mount, queue: s.queue.slice(1), t: 0, epoch: s.epoch };
+        const n = s.timeline.burst.length;
+        if (n === 0) return s;
+        const raw = s.timeline.raw + dt / (n * TRANSITION_SECONDS);
+        if (raw >= 1) {
+          const final = s.timeline.burst[n - 1]!.mount;
+          return { ...s, timeline: { base: final, burst: [], raw: 0 } };
         }
-        return { ...s, t: nt };
+        return { ...s, timeline: { ...s.timeline, raw } };
       });
-      raf = requestAnimationFrame(step);
+      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(step);
+    raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing]);
 
   const jumpTo = (mount: Mount) =>
-    setState((s) => ({ current: mount, queue: [], t: 0, epoch: s.epoch + 1 }));
-  const enqueue = (element: Element, from: Mount) =>
-    setState((s) => ({
-      ...s,
-      queue: [...s.queue, { mount: applyElement(element, from), hint: element.motion(from) }],
-    }));
+    setState((s) => ({ timeline: { base: mount, burst: [], raw: 0 }, epoch: s.epoch + 1 }));
+  const enqueue = (element: Element) =>
+    setState((s) => {
+      const from = s.timeline.burst[s.timeline.burst.length - 1]?.mount ?? s.timeline.base;
+      return { ...s, timeline: extendBurst(s.timeline, [step(element, from)]) };
+    });
   const runDemo = () => {
-    const trapeze = mountById("trapeze");
-    const passR = passElement({ side: "R", digit: "index" });
-    const passL = passElement({ side: "L", digit: "index" });
-    const midSwing = applyElement(passR, trapeze);
+    // The full trick from the throw: breakaway → mount → pass → pass.
+    const base = THROWS.breakaway.result();
+    const s1 = step(mountElement, base);
+    const s2 = step(passElement({ side: "R", digit: "index" }), s1.mount);
+    const s3 = step(passElement({ side: "L", digit: "index" }), s2.mount);
     setState((s) => ({
-      current: trapeze,
-      queue: [
-        { mount: midSwing, hint: passR.motion(trapeze) },
-        { mount: applyElement(passL, midSwing), hint: passL.motion(midSwing) },
-      ],
-      t: 0,
+      timeline: { base, burst: [s1, s2, s3], raw: 0 },
       epoch: s.epoch + 1,
     }));
     setPlaying(true);
@@ -123,10 +118,10 @@ export function App() {
         <label>
           Mount{" "}
           <select
-            value={fixtureTwin(current)?.id ?? ""}
+            value={fixtureTwin(frame.current)?.id ?? ""}
             onChange={(e) => jumpTo(mountById(e.target.value))}
           >
-            {fixtureTwin(current) === undefined && <option value="" />}
+            {fixtureTwin(frame.current) === undefined && <option value="" />}
             {MOUNTS.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name ?? m.id}
@@ -153,18 +148,14 @@ export function App() {
         ))}
         <span className="group-label">element</span>
         {legalElements(STANDARD_ELEMENTS, tail).map((element) => (
-          <button
-            key={element.name}
-            title={element.description}
-            onClick={() => enqueue(element, tail)}
-          >
+          <button key={element.name} title={element.description} onClick={() => enqueue(element)}>
             {element.name}
           </button>
         ))}
         <span className="group-label">demo</span>
-        <button onClick={runDemo}>trapeze → double or nothing</button>
+        <button onClick={runDemo}>breakaway → double or nothing</button>
         <span className="group-label">timeline</span>
-        <button onClick={() => setPlaying((p) => !p)} disabled={!target}>
+        <button onClick={() => setPlaying((p) => !p)} disabled={!frame.target}>
           {playing ? "⏸" : "▶"}
         </button>
         <input
@@ -172,11 +163,11 @@ export function App() {
           min={0}
           max={1}
           step={0.001}
-          value={t}
-          disabled={!target}
+          value={timeline.raw}
+          disabled={!frame.target}
           onChange={(e) => {
             setPlaying(false);
-            setState((s) => ({ ...s, t: Number(e.target.value) }));
+            setState((s) => ({ ...s, timeline: { ...s.timeline, raw: Number(e.target.value) } }));
           }}
         />
         <label className="physics">
@@ -184,19 +175,21 @@ export function App() {
           physics
         </label>
         <span className="now">
-          {displayName(current)}
-          {target ? ` → ${displayName(target.mount)}` : ""}
-          {queue.length > 1 ? ` (+${queue.length - 1} queued)` : ""}
+          {displayName(frame.current)}
+          {frame.target ? ` → ${displayName(frame.target.mount)}` : ""}
+          {timeline.burst.length > 1
+            ? ` (burst of ${timeline.burst.length})`
+            : ""}
         </span>
       </header>
       <main>
         <Scene
-          mount={current}
-          target={target?.mount}
-          hint={target?.hint}
-          t={t}
+          mount={frame.current}
+          target={frame.target?.mount}
+          hint={frame.target?.hint}
+          t={frame.t}
           physics={physics}
-          epoch={state.epoch}
+          epoch={epoch}
           preset={preset}
         />
       </main>

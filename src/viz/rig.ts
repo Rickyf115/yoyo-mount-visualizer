@@ -1,4 +1,5 @@
 import type { Anchor, Digit, Side, Spin } from "../core/schema.js";
+import { add, cross, dot, lerp3, normalize, scale } from "./vec.js";
 
 /**
  * The geometric half of the engine: a Rig poses the hands and defines the
@@ -36,7 +37,7 @@ export interface Rig {
   planeNormal: Vec3;
 }
 
-export const FINGER_RADIUS = 0.024;
+export const FINGER_RADIUS = 0.02;
 
 /** Where along the finger each kind of contact sits (0 = base knuckle, 1 = tip). */
 const LOOP_T = 0.45;
@@ -96,8 +97,8 @@ function hand(palm: Vec3, fingerDir: Vec3, stackDir: Vec3, thumbSide: Vec3): Han
  */
 const SIDE_RIG: Rig = {
   hands: {
-    R: hand([0.55, 1.12, -0.05], [0, 0, 1], [0, 1, 0], [-1, 0, 0]),
-    L: hand([-0.55, 1.12, -0.05], [0, 0, 1], [0, 1, 0], [1, 0, 0]),
+    R: hand([0.35, 1.12, -0.05], [0, 0, 1], [0, 1, 0], [-1, 0, 0]),
+    L: hand([-0.35, 1.12, -0.05], [0, 0, 1], [0, 1, 0], [1, 0, 0]),
   },
   planeNormal: [0, 0, 1],
 };
@@ -109,14 +110,74 @@ const SIDE_RIG: Rig = {
  */
 const FRONT_RIG: Rig = {
   hands: {
-    R: hand([0.16, 1.12, -0.5], [-1, 0, 0], [0, 1, 0], [0, 0, -1]),
-    L: hand([-0.16, 1.12, 0.55], [1, 0, 0], [0, 1, 0], [0, 0, 1]),
+    R: hand([0.16, 1.12, -0.35], [-1, 0, 0], [0, 1, 0], [0, 0, -1]),
+    L: hand([-0.16, 1.12, 0.35], [1, 0, 0], [0, 1, 0], [0, 0, 1]),
   },
   planeNormal: [1, 0, 0],
 };
 
 export function defaultRig(spin: Spin): Rig {
   return spin === "side" ? SIDE_RIG : FRONT_RIG;
+}
+
+/** The horizontal axis the hands spread along (⊥ plane normal and up). */
+export function spreadAxis(rig: Rig): Vec3 {
+  return normalize(cross(rig.planeNormal, [0, 1, 0]));
+}
+
+function mapHand(handPose: HandPose, f: (p: Vec3) => Vec3): HandPose {
+  return {
+    palm: f(handPose.palm),
+    digits: Object.fromEntries(
+      Object.entries(handPose.digits).map(([d, seg]) => [d, { base: f(seg.base), tip: f(seg.tip) }]),
+    ) as Record<Digit, FingerPose>,
+    thumb: { base: f(handPose.thumb.base), tip: f(handPose.thumb.tip) },
+  };
+}
+
+/**
+ * Slide each hand rigidly along the spread axis toward (s < 1) or away from
+ * (s > 1) the centerline — how the rig makes room for wrap-heavy mounts on a
+ * fixed-length string.
+ */
+export function shiftHands(rig: Rig, s: number): Rig {
+  const axis = spreadAxis(rig);
+  const shifted = (handPose: HandPose): HandPose => {
+    const along = dot(handPose.palm, axis);
+    const delta = scale(axis, along * (s - 1));
+    return mapHand(handPose, (p) => add(p, delta));
+  };
+  return { hands: { L: shifted(rig.hands.L), R: shifted(rig.hands.R) }, planeNormal: rig.planeNormal };
+}
+
+/** Raise (or lower) both hands rigidly — the fit's floor guard. */
+export function raiseHands(rig: Rig, dy: number): Rig {
+  const lift = (handPose: HandPose): HandPose => mapHand(handPose, (p) => add(p, [0, dy, 0]));
+  return { hands: { L: lift(rig.hands.L), R: lift(rig.hands.R) }, planeNormal: rig.planeNormal };
+}
+
+/** Pointwise interpolation between two same-spin rigs (hands glide). */
+export function lerpRig(a: Rig, b: Rig, t: number): Rig {
+  const mix = (x: HandPose, y: HandPose): HandPose => ({
+    palm: lerp3(x.palm, y.palm, t),
+    digits: Object.fromEntries(
+      (Object.keys(x.digits) as Digit[]).map((d) => [
+        d,
+        {
+          base: lerp3(x.digits[d].base, y.digits[d].base, t),
+          tip: lerp3(x.digits[d].tip, y.digits[d].tip, t),
+        },
+      ]),
+    ) as Record<Digit, FingerPose>,
+    thumb: {
+      base: lerp3(x.thumb.base, y.thumb.base, t),
+      tip: lerp3(x.thumb.tip, y.thumb.tip, t),
+    },
+  });
+  return {
+    hands: { L: mix(a.hands.L, b.hands.L), R: mix(a.hands.R, b.hands.R) },
+    planeNormal: a.planeNormal,
+  };
 }
 
 /** The finger segment a hand anchor lives on. */
