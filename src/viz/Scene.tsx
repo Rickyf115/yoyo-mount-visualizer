@@ -4,27 +4,26 @@ import { useEffect, useMemo, useRef, type ComponentRef } from "react";
 import { CatmullRomCurve3, Mesh, Quaternion, TubeGeometry, Vector3 } from "three";
 import type { MotionHint } from "../core/elements.js";
 import type { Mount } from "../core/schema.js";
-import { layoutMount, type MountLayout, type YoYoPose } from "./layout.js";
+import { fitLayout, type YoYoPose } from "./layout.js";
 import {
-  contactKinds,
-  layoutLength,
+  commonContacts,
+  contactInfos,
   layoutPins,
   pinsAt,
   transitionPath,
-  type LayoutPin,
 } from "./motion.js";
 import {
   FINGER_RADIUS,
-  defaultRig,
+  lerpRig,
   type FingerPose,
   type HandPose,
   type Rig,
   type Vec3,
 } from "./rig.js";
+import { sub } from "./vec.js";
 import {
   createRope,
   ropePoints,
-  setRestLength,
   stepRope,
   type Capsule,
   type Pin,
@@ -41,7 +40,8 @@ const CAMERA_PRESETS: Record<CameraPresetName, { position: Vec3; target: Vec3 }>
 
 const PARTICLES = 120;
 const STRING_RADIUS = 0.0055;
-const smoothstep = (t: number) => t * t * (3 - 2 * t);
+/** New-topology pins engage this late; before it, collision forms the wraps. */
+const PIN_BEAT = 0.82;
 
 function CameraRig({ preset }: { preset: CameraPresetName }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -151,27 +151,27 @@ function ropeColliders(rig: Rig): Capsule[] {
 interface PhysicsStringProps {
   seed: Vec3[];
   pins: Pin[];
-  restLength: number;
   colliders: Capsule[];
   /** Changing epoch reseeds the rope (hard jumps); transitions keep state. */
   epoch: number;
 }
 
-function PhysicsString({ seed, pins, restLength, colliders, epoch }: PhysicsStringProps) {
+function PhysicsString({ seed, pins, colliders, epoch }: PhysicsStringProps) {
   const rope = useRef<RopeState | null>(null);
   const mesh = useRef<Mesh>(null);
-  const latest = useRef({ pins, restLength, colliders });
-  latest.current = { pins, restLength, colliders };
+  const latest = useRef({ pins, colliders });
+  latest.current = { pins, colliders };
   const seedRef = useRef(seed);
   seedRef.current = seed;
 
   useEffect(() => {
-    rope.current = createRope(seedRef.current);
+    // Rest length is set once from the seed — the string never stretches or
+    // shrinks; fitLayout guarantees every mount fits the same budget.
+    rope.current = createRope(seedRef.current, 1.01);
   }, [epoch]);
 
   useFrame((_, delta) => {
     if (!rope.current || !mesh.current) return;
-    setRestLength(rope.current, latest.current.restLength);
     stepRope(rope.current, delta, latest.current.pins, latest.current.colliders);
     const geometry = stringGeometry(ropePoints(rope.current).map((p) => new Vector3(...p)));
     mesh.current.geometry.dispose();
@@ -200,35 +200,55 @@ export interface SceneProps {
 }
 
 export function Scene({ mount, target, hint = null, t = 0, physics = true, epoch = 0, preset }: SceneProps) {
-  // Elements never change spin, so one rig serves both ends of a transition.
-  const rig: Rig = defaultRig(mount.spin);
-  const layout = useMemo(() => layoutMount(mount, rig), [mount, rig]);
-  const targetLayout = useMemo(() => (target ? layoutMount(target, rig) : null), [target, rig]);
-  const colliders = useMemo(() => ropeColliders(rig), [rig]);
-  const k = smoothstep(Math.min(Math.max(t, 0), 1));
+  // Every mount is laid out on the same fixed-length string; hands slide to
+  // fit and glide between the two fits during a transition.
+  const fitted = useMemo(() => fitLayout(mount, mount.spin), [mount]);
+  const targetFitted = useMemo(() => (target ? fitLayout(target, target.spin) : null), [target]);
+  // `t` arrives already eased (the timeline eases across whole bursts).
+  const k = Math.min(Math.max(t, 0), 1);
+  const rig: Rig = targetFitted ? lerpRig(fitted.rig, targetFitted.rig, k) : fitted.rig;
+  const layout = fitted.layout;
+  const targetLayout = targetFitted?.layout ?? null;
+  const colliders = ropeColliders(rig);
 
   // The yo-yo swings along the element's arc; the string is pinned to it.
-  const path = useMemo(
-    () => (targetLayout ? transitionPath(hint, rig, layout, targetLayout) : null),
-    [hint, rig, layout, targetLayout],
-  );
+  const path = targetLayout ? transitionPath(hint, rig, layout, targetLayout) : null;
   const yoyoCenter = path ? path(k) : layout.yoyo.center;
   const yoyo: YoYoPose = { center: yoyoCenter, axis: rig.planeNormal };
 
-  // Pins: from-layout before the beat, to-layout after; gap/axle pins ride the yo-yo.
-  const pinsFor = (m: Mount, l: MountLayout): LayoutPin[] =>
-    layoutPins(l, contactKinds(m.anchors, m.contacts.map((c) => c.anchor)), PARTICLES);
-  const fromPins = useMemo(() => pinsFor(mount, layout), [mount, layout]);
+  // Pin schedule: during the swing only the contacts *shared* by both
+  // topologies stay pinned — abandoned wraps release at once, and the rope
+  // forms new wraps naturally by being dragged around the fingers (capsule
+  // collision). The new topology's pins engage at the late beat to lock it.
+  const fromPins = useMemo(
+    () => layoutPins(layout, contactInfos(mount), PARTICLES),
+    [layout, mount],
+  );
   const toPins = useMemo(
-    () => (target && targetLayout ? pinsFor(target, targetLayout) : null),
+    () => (target && targetLayout ? layoutPins(targetLayout, contactInfos(target), PARTICLES) : null),
     [target, targetLayout],
   );
-  const past = targetLayout !== null && t >= 0.5;
-  const activeLayout = past ? targetLayout! : layout;
-  const pins = pinsAt(past ? toPins! : fromPins, activeLayout.yoyo.center, yoyoCenter);
-  const restLength =
-    layoutLength(layout) +
-    (targetLayout ? (layoutLength(targetLayout) - layoutLength(layout)) * k : 0);
+  const shared = useMemo(
+    () => (target ? commonContacts(mount, target) : null),
+    [mount, target],
+  );
+  const handDeltaFor = (sourceRig: Rig): Record<"L" | "R", Vec3> => ({
+    L: sub(rig.hands.L.palm, sourceRig.hands.L.palm),
+    R: sub(rig.hands.R.palm, sourceRig.hands.R.palm),
+  });
+  let pins;
+  if (!targetLayout || !toPins || !shared) {
+    pins = pinsAt(fromPins, layout.yoyo.center, yoyoCenter);
+  } else if (t < PIN_BEAT) {
+    pins = pinsAt(
+      fromPins.filter((p) => shared.from.has(p.contact)),
+      layout.yoyo.center,
+      yoyoCenter,
+      handDeltaFor(fitted.rig),
+    );
+  } else {
+    pins = pinsAt(toPins, targetLayout.yoyo.center, yoyoCenter, handDeltaFor(targetFitted!.rig));
+  }
 
   const seed = useMemo(
     () => sampleString(layout.controlPoints, PARTICLES - 1).map((p): Vec3 => [p.x, p.y, p.z]),
@@ -255,13 +275,7 @@ export function Scene({ mount, target, hint = null, t = 0, physics = true, epoch
       <Hand pose={rig.hands.L} label="L" />
       <YoYo pose={yoyo} />
       {physics ? (
-        <PhysicsString
-          seed={seed}
-          pins={pins}
-          restLength={restLength}
-          colliders={colliders}
-          epoch={epoch}
-        />
+        <PhysicsString seed={seed} pins={pins} colliders={colliders} epoch={epoch} />
       ) : (
         <MorphString points={morphPoints} />
       )}

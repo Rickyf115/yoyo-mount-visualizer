@@ -1,5 +1,14 @@
-import type { Anchor, Mount } from "../core/schema.js";
-import { FINGER_RADIUS, anchorContactCenter, anchorFinger, type Rig, type Vec3 } from "./rig.js";
+import type { Anchor, Mount, Spin } from "../core/schema.js";
+import {
+  FINGER_RADIUS,
+  anchorContactCenter,
+  anchorFinger,
+  defaultRig,
+  raiseHands,
+  shiftHands,
+  type Rig,
+  type Vec3,
+} from "./rig.js";
 import { add, cross, dist, dot, mid, norm, normalize, scale, sub, wrapDelta } from "./vec.js";
 
 /**
@@ -51,14 +60,19 @@ function handAnchorPosition(anchor: Anchor, rig: Rig): Vec3 {
  * the axle winding (the string end is at the yo-yo, e.g. brother, 1.5).
  * With no gap contact the yo-yo dangles at the string's end (dead string).
  */
-function yoyoCenter(mount: Mount, rig: Rig, anchorById: Map<string, Anchor>): Vec3 {
+function yoyoCenter(
+  mount: Mount,
+  rig: Rig,
+  anchorById: Map<string, Anchor>,
+  extraDrop: number,
+): Vec3 {
   const kindAt = (i: number) => anchorById.get(mount.contacts[i]!.anchor)!;
   const posAt = (i: number) => handAnchorPosition(kindAt(i), rig);
 
   const gapIndex = mount.contacts.findIndex((c) => anchorById.get(c.anchor)!.kind === "gap");
   if (gapIndex === -1) {
     // Unmounted: hang below the last hand anchor before the axle.
-    return add(posAt(mount.contacts.length - 2), [0, -0.55, 0]);
+    return add(posAt(mount.contacts.length - 2), [0, -(0.4 + extraDrop), 0]);
   }
   const before = kindAt(gapIndex - 1);
   const after = kindAt(gapIndex + 1);
@@ -66,10 +80,10 @@ function yoyoCenter(mount: Mount, rig: Rig, anchorById: Map<string, Anchor>): Ve
     throw new Error(`mount "${mount.id}": consecutive gap contacts are not supported yet`);
   }
   if (after.kind === "axle") {
-    return add(posAt(gapIndex - 1), [0, -YOYO_HANG, 0]);
+    return add(posAt(gapIndex - 1), [0, -(YOYO_HANG + extraDrop), 0]);
   }
   const rest = mid(posAt(gapIndex - 1), posAt(gapIndex + 1));
-  return add(rest, [0, -MOUNT_SAG, 0]);
+  return add(rest, [0, -(MOUNT_SAG + extraDrop), 0]);
 }
 
 /** Interpolate angles the short way around. */
@@ -145,10 +159,15 @@ function wrapArc(
   return points;
 }
 
-export function layoutMount(mount: Mount, rig: Rig): MountLayout {
+export interface LayoutOptions {
+  /** Additional yo-yo drop below the heuristic rest position (string budget). */
+  extraDrop?: number;
+}
+
+export function layoutMount(mount: Mount, rig: Rig, options: LayoutOptions = {}): MountLayout {
   const anchorById = new Map(mount.anchors.map((a) => [a.id, a]));
   const yoyo: YoYoPose = {
-    center: yoyoCenter(mount, rig, anchorById),
+    center: yoyoCenter(mount, rig, anchorById, options.extraDrop ?? 0),
     axis: rig.planeNormal,
   };
 
@@ -199,4 +218,67 @@ export function layoutMount(mount: Mount, rig: Rig): MountLayout {
   });
 
   return { controlPoints, contactArcs, yoyo };
+}
+
+// ---------------------------------------------------------------------------
+// constant string length
+
+/** Polyline length of a layout's control points. */
+export function layoutLength(layout: MountLayout): number {
+  let length = 0;
+  for (let i = 1; i < layout.controlPoints.length; i++) {
+    length += dist(layout.controlPoints[i - 1]!, layout.controlPoints[i]!);
+  }
+  return length;
+}
+
+/** The one string every mount is laid out on, loop to axle (scene meters). */
+export const STRING_LENGTH = 1.45;
+
+export interface FittedLayout {
+  rig: Rig;
+  layout: MountLayout;
+  /** Hand-spread factor the fit settled on (1 = default rig). */
+  spread: number;
+}
+
+function bisect(f: (x: number) => number, lo: number, hi: number, iterations = 28): number {
+  // f is monotonically increasing; find f(x) ≈ 0.
+  let a = lo;
+  let b = hi;
+  for (let i = 0; i < iterations; i++) {
+    const m = (a + b) / 2;
+    if (f(m) > 0) b = m;
+    else a = m;
+  }
+  return (a + b) / 2;
+}
+
+/**
+ * Lay a mount out on the fixed-length string: hands slide together until the
+ * traversal fits the budget (wrap-heavy mounts pull the hands in), then the
+ * yo-yo drops to consume whatever is left (a bare string hangs deep). This is
+ * what makes string length consistent across mounts and transitions.
+ */
+export function fitLayout(mount: Mount, spin: Spin): FittedLayout {
+  const base = defaultRig(spin);
+  const lengthAt = (rig: Rig, extraDrop: number) =>
+    layoutLength(layoutMount(mount, rig, { extraDrop }));
+
+  let spread = 1;
+  if (lengthAt(base, 0) > STRING_LENGTH) {
+    spread = bisect((s) => lengthAt(shiftHands(base, s), 0) - STRING_LENGTH, 0.12, 1);
+  }
+  let rig = spread === 1 ? base : shiftHands(base, spread);
+  const drop = Math.max(0, bisect((e) => lengthAt(rig, e) - STRING_LENGTH, 0, 1.4));
+  let layout = layoutMount(mount, rig, { extraDrop: drop });
+
+  // Floor guard: a long hang (deep sleeper) lifts both hands instead of
+  // letting the yo-yo sink through the ground. Rigid, so length is unchanged.
+  const clearance = 0.1 - layout.yoyo.center[1];
+  if (clearance > 0) {
+    rig = raiseHands(rig, clearance);
+    layout = layoutMount(mount, rig, { extraDrop: drop });
+  }
+  return { rig, layout, spread };
 }

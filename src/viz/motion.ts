@@ -1,5 +1,5 @@
 import type { MotionHint } from "../core/elements.js";
-import type { Anchor, AnchorKind } from "../core/schema.js";
+import type { Anchor, AnchorKind, Mount, Side } from "../core/schema.js";
 import { AXLE_RADIUS, type MountLayout } from "./layout.js";
 import { anchorContactCenter, type Rig, type Vec3 } from "./rig.js";
 import { add, cross, dist, dot, lerp3, normalize, perp, scale, sub, wrapDelta } from "./vec.js";
@@ -102,6 +102,15 @@ export interface LayoutPin {
   position: Vec3;
   /** Contact kind this pin belongs to; gap/axle pins ride the yo-yo. */
   kind: AnchorKind;
+  /** Hand side for hand contacts, so pins can follow moving hands. */
+  side?: Side | undefined;
+  /** Index into mount.contacts this pin came from. */
+  contact: number;
+}
+
+export interface ContactInfo {
+  kind: AnchorKind;
+  side?: Side | undefined;
 }
 
 /**
@@ -111,7 +120,7 @@ export interface LayoutPin {
  */
 export function layoutPins(
   layout: MountLayout,
-  kinds: AnchorKind[],
+  contacts: ContactInfo[],
   particleCount: number,
 ): LayoutPin[] {
   const { controlPoints, contactArcs } = layout;
@@ -133,7 +142,13 @@ export function layoutPins(
       const index = Math.round(fraction * (particleCount - 1));
       if (taken.has(index)) continue;
       taken.add(index);
-      pins.push({ index, position: controlPoints[global]!, kind: kinds[contact]! });
+      pins.push({
+        index,
+        position: controlPoints[global]!,
+        kind: contacts[contact]!.kind,
+        side: contacts[contact]!.side,
+        contact,
+      });
     }
     cursor += run.length;
   });
@@ -141,35 +156,74 @@ export function layoutPins(
 }
 
 /**
- * Pin positions for a moment of a transition: hand pins hold their layout
- * spots; gap/axle pins translate with the swinging yo-yo.
+ * Pin positions for a moment of a transition: gap/axle pins translate with
+ * the swinging yo-yo, hand pins translate with their (gliding) hand.
  */
 export function pinsAt(
   pins: LayoutPin[],
   layoutYoyoCenter: Vec3,
   animatedYoyoCenter: Vec3,
+  handDelta: Record<Side, Vec3> = { L: [0, 0, 0], R: [0, 0, 0] },
 ): { index: number; position: Vec3 }[] {
-  const offset = sub(animatedYoyoCenter, layoutYoyoCenter);
-  return pins.map((pin) =>
-    pin.kind === "gap" || pin.kind === "axle"
-      ? { index: pin.index, position: add(pin.position, offset) }
-      : { index: pin.index, position: pin.position },
-  );
+  const yoyoOffset = sub(animatedYoyoCenter, layoutYoyoCenter);
+  return pins.map((pin) => {
+    if (pin.kind === "gap" || pin.kind === "axle") {
+      return { index: pin.index, position: add(pin.position, yoyoOffset) };
+    }
+    const offset = pin.side ? handDelta[pin.side] : ([0, 0, 0] as Vec3);
+    return { index: pin.index, position: add(pin.position, offset) };
+  });
 }
 
-/** Contact kinds parallel to a mount's contacts (for tagging pins). */
-export function contactKinds(anchors: Anchor[], contactAnchorIds: string[]): AnchorKind[] {
-  const byId = new Map(anchors.map((a) => [a.id, a]));
-  return contactAnchorIds.map((id) => byId.get(id)!.kind);
+/** Contact kind+side info parallel to a mount's contacts (for tagging pins). */
+export function contactInfos(mount: Mount): ContactInfo[] {
+  const byId = new Map(mount.anchors.map((a) => [a.id, a]));
+  return mount.contacts.map((c) => {
+    const anchor = byId.get(c.anchor)!;
+    return { kind: anchor.kind, side: anchor.side };
+  });
 }
 
-/** Polyline length of a layout's control points (rope rest-length target). */
-export function layoutLength(layout: MountLayout): number {
-  let length = 0;
-  for (let i = 1; i < layout.controlPoints.length; i++) {
-    length += dist(layout.controlPoints[i - 1]!, layout.controlPoints[i]!);
+/**
+ * Longest common subsequence of two mounts' contacts, by physical identity
+ * (anchor kind/side/digit + wrap + direction). Returns the retained contact
+ * indices per side. During a transition only the *shared* contacts stay
+ * pinned: abandoned wraps release immediately, and new wraps are formed by
+ * the swinging yo-yo dragging the rope around the finger (collision), with
+ * their pins engaging only at the late beat.
+ */
+export function commonContacts(from: Mount, to: Mount): { from: Set<number>; to: Set<number> } {
+  const signature = (m: Mount) => {
+    const byId = new Map(m.anchors.map((a) => [a.id, a]));
+    return m.contacts.map((c) => {
+      const a = byId.get(c.anchor)!;
+      return `${a.kind}:${a.side ?? "-"}:${a.digit ?? "-"}:${c.wrap}:${c.direction}`;
+    });
+  };
+  const sa = signature(from);
+  const sb = signature(to);
+  const n = sa.length;
+  const m = sb.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] = sa[i] === sb[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+    }
   }
-  return length;
+  const fromSet = new Set<number>();
+  const toSet = new Set<number>();
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (sa[i] === sb[j]) {
+      fromSet.add(i);
+      toSet.add(j);
+      i++;
+      j++;
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) i++;
+    else j++;
+  }
+  return { from: fromSet, to: toSet };
 }
 
 /** The gap pin's offset from the yo-yo center (string rides over the axle). */

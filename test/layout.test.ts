@@ -48,7 +48,7 @@ describe("layoutMount", () => {
     const loop = anchorContactCenter(rig, anchorOf("dead-string", "th-loop"));
     expect(yoyo.center[0]).toBeCloseTo(loop[0], 5);
     expect(yoyo.center[2]).toBeCloseTo(loop[2], 5);
-    expect(yoyo.center[1]).toBeLessThan(loop[1] - 0.4);
+    expect(yoyo.center[1]).toBeLessThan(loop[1] - 0.35);
   });
 
   it("wraps a trapeze around the finger: arc over the top, strands splayed apart", () => {

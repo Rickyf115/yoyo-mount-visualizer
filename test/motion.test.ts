@@ -8,7 +8,14 @@ import {
 } from "../src/core/elements.js";
 import { loadMountFixtures } from "../src/core/index.js";
 import { layoutMount } from "../src/viz/layout.js";
-import { layoutPins, resolvePivot, transitionPath, yoyoArcPath } from "../src/viz/motion.js";
+import {
+  commonContacts,
+  contactInfos,
+  layoutPins,
+  resolvePivot,
+  transitionPath,
+  yoyoArcPath,
+} from "../src/viz/motion.js";
 import { anchorContactCenter, defaultRig } from "../src/viz/rig.js";
 
 const mounts = loadMountFixtures();
@@ -103,10 +110,7 @@ describe("layoutPins", () => {
   it("pins the rope ends and tags kinds, monotonically increasing", () => {
     const trapeze = mounts.get("trapeze")!;
     const layout = layoutMount(trapeze, rig);
-    const kinds = trapeze.contacts.map(
-      (c) => trapeze.anchors.find((a) => a.id === c.anchor)!.kind,
-    );
-    const pins = layoutPins(layout, kinds, 120);
+    const pins = layoutPins(layout, contactInfos(trapeze), 120);
     expect(pins[0]!.index).toBe(0);
     expect(pins[pins.length - 1]!.index).toBe(119);
     expect(pins[0]!.kind).toBe("loop");
@@ -115,5 +119,33 @@ describe("layoutPins", () => {
     expect([...indices].sort((a, b) => a - b)).toEqual(indices);
     // wraps hold entry/apex/exit: the finger contact contributes 3 pins
     expect(pins.filter((p) => p.kind === "finger").length).toBe(3);
+    // hand pins carry their side so they can follow gliding hands
+    expect(pins[0]!.side).toBe("R");
+    expect(pins.find((p) => p.kind === "finger")!.side).toBe("L");
+  });
+});
+
+describe("commonContacts", () => {
+  it("a pass keeps every original contact pinned (pure insertion)", () => {
+    const trapeze = mounts.get("trapeze")!;
+    const to = applyElement(passElement({ side: "R", digit: "index" }), trapeze);
+    const shared = commonContacts(trapeze, to);
+    expect(shared.from.size).toBe(trapeze.contacts.length);
+    expect(shared.to.size).toBe(trapeze.contacts.length);
+  });
+
+  it("a dismount keeps only the loop and axle", () => {
+    const trapeze = mounts.get("trapeze")!;
+    const to = applyElement(dismountElement, trapeze);
+    const shared = commonContacts(trapeze, to);
+    expect(shared.from).toEqual(new Set([0, trapeze.contacts.length - 1]));
+  });
+
+  it("a mount keeps only the loop and axle of the bare string", () => {
+    const dead = THROWS.breakaway.result();
+    const to = applyElement(mountElement, dead);
+    const shared = commonContacts(dead, to);
+    expect(shared.from).toEqual(new Set([0, 1]));
+    expect(shared.to).toEqual(new Set([0, 3]));
   });
 });
