@@ -1,5 +1,5 @@
 import type { MotionHint } from "../core/elements.js";
-import type { Anchor, AnchorKind, Mount, Side } from "../core/schema.js";
+import type { Anchor, AnchorKind, Mount, Side, Spin } from "../core/schema.js";
 import { AXLE_RADIUS, type MountLayout } from "./layout.js";
 import { anchorContactCenter, type Rig, type Vec3 } from "./rig.js";
 import { add, cross, dist, dot, lerp3, normalize, perp, scale, sub, wrapDelta } from "./vec.js";
@@ -17,6 +17,15 @@ import { add, cross, dist, dot, lerp3, normalize, perp, scale, sub, wrapDelta } 
 
 export type YoyoPath = (t: number) => Vec3;
 
+/**
+ * The rotational sense swings follow, per spin, in the (e1=up, e2) arc
+ * basis: the yo-yo's momentum comes from the throw and every swing in a
+ * combo continues it. +1 sweeps from the throwhand side up over the apex
+ * toward the non-throwhand side (righty breakaway), and front spin rolls
+ * forward the same way. A finer spin model can refine this later (IDEAS).
+ */
+export const SWING_DIRECTION: Record<Spin, 1 | -1> = { side: 1, front: 1 };
+
 /** Where the hint's pivot anchor sits under this rig. */
 export function resolvePivot(hint: MotionHint, rig: Rig): Vec3 {
   const anchor: Anchor =
@@ -32,6 +41,7 @@ export function yoyoArcPath(
   pivot: Vec3 | null,
   axis: Vec3,
   sweep: "over" | "under" | "shortest",
+  spinDirection: 1 | -1 = 1,
 ): YoyoPath {
   if (pivot === null) return (t) => lerp3(from, to, t);
 
@@ -53,9 +63,11 @@ export function yoyoArcPath(
   const a = decompose(from);
   const b = decompose(to);
 
-  // Short-way delta; for "over"/"under", force the arc across the apex
-  // (θ = 0 straight up, θ = π straight down) by taking the long way when the
-  // short way misses it — a full 2π swing when start and end coincide.
+  // Short-way delta; for "over"/"under", the swing must cross the apex
+  // (θ = 0 straight up, θ = π straight down) *and* follow the spin's
+  // momentum direction — never whichever way happens to be shorter. Take
+  // the long way around whenever the short way runs backwards or misses
+  // the apex (a full 2π swing when start and end coincide).
   let delta = wrapDelta(b.theta - a.theta);
   if (sweep !== "shortest") {
     const apex = sweep === "over" ? 0 : Math.PI;
@@ -63,10 +75,9 @@ export function yoyoArcPath(
     const coversApex = [apex - 2 * Math.PI, apex, apex + 2 * Math.PI].some(
       (k) => Math.min(a.theta, end) <= k && k <= Math.max(a.theta, end),
     );
-    if (!coversApex || Math.abs(delta) < 1e-6) {
-      const toApex = wrapDelta(apex - a.theta);
-      const dir = delta !== 0 ? -Math.sign(delta) : toApex >= 0 ? 1 : -1;
-      delta = delta + dir * 2 * Math.PI;
+    const wrongWay = delta !== 0 && Math.sign(delta) !== spinDirection;
+    if (wrongWay || !coversApex || Math.abs(delta) < 1e-6) {
+      delta = delta + spinDirection * 2 * Math.PI;
     }
   }
 
@@ -90,9 +101,17 @@ export function transitionPath(
   rig: Rig,
   from: MountLayout,
   to: MountLayout,
+  spin: Spin = "side",
 ): YoyoPath {
   const pivot = hint ? resolvePivot(hint, rig) : null;
-  return yoyoArcPath(from.yoyo.center, to.yoyo.center, pivot, rig.planeNormal, hint?.sweep ?? "shortest");
+  return yoyoArcPath(
+    from.yoyo.center,
+    to.yoyo.center,
+    pivot,
+    rig.planeNormal,
+    hint?.sweep ?? "shortest",
+    SWING_DIRECTION[spin],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +156,15 @@ export function layoutPins(
   let cursor = 0;
   contactArcs.forEach((run, contact) => {
     if (contact > 0) cursor += 1; // skip the sag point between runs
-    const subIndices = [...new Set([0, Math.floor((run.length - 1) / 2), run.length - 1])];
+    // The slipknot coil (contact 0) is held at both ends and its middle;
+    // every other wrap pins only its apex — the entry/exit tangent points
+    // can sit on the underside of the finger and flip sides as neighbours
+    // move, which pops the string over/under. Collision against the finger
+    // capsule shapes the flanks instead.
+    const subIndices =
+      contact === 0 && run.length > 1
+        ? [...new Set([0, Math.floor((run.length - 1) / 2), run.length - 1])]
+        : [Math.floor((run.length - 1) / 2)];
     for (const sub of subIndices) {
       const global = cursor + sub;
       const fraction = total === 0 ? 0 : cumulative[global]! / total;
