@@ -24,7 +24,7 @@ export type YoyoPath = (t: number) => Vec3;
  * toward the non-throwhand side (righty breakaway), and front spin rolls
  * forward the same way. A finer spin model can refine this later (IDEAS).
  */
-export const SWING_DIRECTION: Record<Spin, 1 | -1> = { side: 1, front: 1 };
+export const SWING_DIRECTION: Record<Spin, 1 | -1> = { side: -1, front: 1 };
 
 /** Where the hint's pivot anchor sits under this rig. */
 export function resolvePivot(hint: MotionHint, rig: Rig): Vec3 {
