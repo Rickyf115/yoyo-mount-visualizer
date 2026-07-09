@@ -3,9 +3,9 @@ import {
   STANDARD_ELEMENTS,
   THROWS,
   applyElement,
-  legalElements,
   mountElement,
   passElement,
+  rollElement,
   type Element,
 } from "../core/elements.js";
 import type { Mount } from "../core/schema.js";
@@ -98,18 +98,27 @@ export function App() {
       const from = s.timeline.burst[s.timeline.burst.length - 1]?.mount ?? s.timeline.base;
       return { ...s, timeline: extendBurst(s.timeline, [step(element, from)]) };
     });
-  const runDemo = () => {
-    // The full trick from the throw: breakaway → mount → pass → pass.
+  const runDemo = (build: (base: Mount) => BurstStep[]) => () => {
     const base = THROWS.breakaway.result();
-    const s1 = step(mountElement, base);
-    const s2 = step(passElement({ side: "R", digit: "index" }), s1.mount);
-    const s3 = step(passElement({ side: "L", digit: "index" }), s2.mount);
     setState((s) => ({
-      timeline: { base, burst: [s1, s2, s3], raw: 0 },
+      timeline: { base, burst: build(base), raw: 0 },
       epoch: s.epoch + 1,
     }));
     setPlaying(true);
   };
+  // The full trick from the throw: breakaway → mount → pass → pass.
+  const donDemo = runDemo((base) => {
+    const s1 = step(mountElement, base);
+    const s2 = step(passElement({ side: "R", digit: "index" }), s1.mount);
+    const s3 = step(passElement({ side: "L", digit: "index" }), s2.mount);
+    return [s1, s2, s3];
+  });
+  // A repeater: self-edges in the multigraph, played as three swings.
+  const rollDemo = runDemo((base) => {
+    const s1 = step(mountElement, base);
+    const roll = () => step(rollElement, s1.mount);
+    return [s1, roll(), roll(), roll()];
+  });
 
   return (
     <div className="app">
@@ -146,14 +155,9 @@ export function App() {
             {entry.name}
           </button>
         ))}
-        <span className="group-label">element</span>
-        {legalElements(STANDARD_ELEMENTS, tail).map((element) => (
-          <button key={element.name} title={element.description} onClick={() => enqueue(element)}>
-            {element.name}
-          </button>
-        ))}
         <span className="group-label">demo</span>
-        <button onClick={runDemo}>breakaway → double or nothing</button>
+        <button onClick={donDemo}>breakaway → double or nothing</button>
+        <button onClick={rollDemo}>trapeze rolls ×3</button>
         <span className="group-label">timeline</span>
         <button onClick={() => setPlaying((p) => !p)} disabled={!frame.target}>
           {playing ? "⏸" : "▶"}
@@ -182,17 +186,40 @@ export function App() {
             : ""}
         </span>
       </header>
-      <main>
-        <Scene
-          mount={frame.current}
-          target={frame.target?.mount}
-          hint={frame.target?.hint}
-          t={frame.t}
-          physics={physics}
-          epoch={epoch}
-          preset={preset}
-        />
-      </main>
+      <div className="body">
+        <aside className="elements" aria-label="element library">
+          <h2>Elements</h2>
+          {STANDARD_ELEMENTS.map((element) => {
+            const reason = element.precondition(tail);
+            return (
+              <div key={element.name} className={reason ? "element illegal" : "element"}>
+                <button
+                  disabled={reason !== null}
+                  title={element.description}
+                  onClick={() => enqueue(element)}
+                >
+                  <span className="element-name">{element.name}</span>
+                  <span className="difficulty" aria-label={`difficulty ${element.difficulty}`}>
+                    {"●".repeat(element.difficulty)}
+                  </span>
+                </button>
+                <small>{reason ?? element.description}</small>
+              </div>
+            );
+          })}
+        </aside>
+        <main>
+          <Scene
+            mount={frame.current}
+            target={frame.target?.mount}
+            hint={frame.target?.hint}
+            t={frame.t}
+            physics={physics}
+            epoch={epoch}
+            preset={preset}
+          />
+        </main>
+      </div>
     </div>
   );
 }

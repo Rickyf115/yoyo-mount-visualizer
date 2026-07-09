@@ -37,6 +37,23 @@
       .now { font-size: 0.82rem; color: #c8d2e2; }
       .physics { font-size: 0.82rem; color: #9aa7bd; display: flex; gap: 0.3rem; align-items: center; }
       button:disabled { opacity: 0.4; cursor: default; }
+      .body { flex: 1; min-height: 0; display: flex; }
+      .elements {
+        width: 230px; overflow-y: auto; padding: 0.6rem;
+        background: #1a1f26; border-right: 1px solid #313845;
+        display: flex; flex-direction: column; gap: 0.45rem;
+      }
+      .elements h2 {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: #6b7688; font-weight: 600;
+      }
+      .element button {
+        width: 100%; display: flex; justify-content: space-between; align-items: center;
+        gap: 0.5rem; text-align: left;
+      }
+      .element small { display: block; color: #77839a; font-size: 0.68rem; padding: 0.15rem 0.1rem 0; }
+      .element.illegal small { color: #5d6675; font-style: italic; }
+      .difficulty { color: #d8bd7f; font-size: 0.6rem; letter-spacing: 0.1em; }
       main { flex: 1; min-height: 0; }
     </style>
   </head>

@@ -31,7 +31,7 @@ export function yoyoArcPath(
   to: Vec3,
   pivot: Vec3 | null,
   axis: Vec3,
-  sweep: "over" | "shortest",
+  sweep: "over" | "under" | "shortest",
 ): YoyoPath {
   if (pivot === null) return (t) => lerp3(from, to, t);
 
@@ -53,17 +53,19 @@ export function yoyoArcPath(
   const a = decompose(from);
   const b = decompose(to);
 
-  // Short-way delta; for "over", force the arc across the apex (θ = 0,
-  // straight up from the pivot) by taking the long way when the short way
-  // misses it — a full 2π swing when start and end coincide.
+  // Short-way delta; for "over"/"under", force the arc across the apex
+  // (θ = 0 straight up, θ = π straight down) by taking the long way when the
+  // short way misses it — a full 2π swing when start and end coincide.
   let delta = wrapDelta(b.theta - a.theta);
-  if (sweep === "over") {
+  if (sweep !== "shortest") {
+    const apex = sweep === "over" ? 0 : Math.PI;
     const end = a.theta + delta;
-    const coversApex = [-2 * Math.PI, 0, 2 * Math.PI].some(
+    const coversApex = [apex - 2 * Math.PI, apex, apex + 2 * Math.PI].some(
       (k) => Math.min(a.theta, end) <= k && k <= Math.max(a.theta, end),
     );
     if (!coversApex || Math.abs(delta) < 1e-6) {
-      const dir = delta !== 0 ? -Math.sign(delta) : a.theta > 0 ? -1 : 1;
+      const toApex = wrapDelta(apex - a.theta);
+      const dir = delta !== 0 ? -Math.sign(delta) : toApex >= 0 ? 1 : -1;
       delta = delta + dir * 2 * Math.PI;
     }
   }

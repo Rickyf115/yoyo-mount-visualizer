@@ -1,0 +1,14 @@
+{
+  "id": "dead-string-side",
+  "name": "dead string (side)",
+  "spin": "side",
+  "anchors": [
+    { "id": "th-loop", "kind": "loop", "side": "R" },
+    { "id": "axle", "kind": "axle" }
+  ],
+  "contacts": [
+    { "anchor": "th-loop", "wrap": "over", "direction": "cw" },
+    { "anchor": "axle", "wrap": "over", "direction": "cw" }
+  ],
+  "crossings": []
+}

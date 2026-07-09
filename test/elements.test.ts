@@ -6,12 +6,14 @@ import {
   THROWS,
   applyElement,
   dismountElement,
+  hopBackElement,
   hopElement,
   legalElements,
   loadMountFixtures,
   mountElement,
   mountHash,
   passElement,
+  rollElement,
 } from "../src/core/index.js";
 
 const fixtures = loadMountFixtures();
@@ -26,6 +28,7 @@ describe("throw entries", () => {
     const side = THROWS.breakaway.result();
     expect(side.spin).toBe("side");
     expect(mountHash(side)).not.toBe(mountHash(fx("dead-string")));
+    expect(mountHash(side)).toBe(mountHash(fx("dead-string-side")));
   });
 });
 
@@ -140,12 +143,86 @@ describe("element mechanics", () => {
     ]);
   });
 
-  it("legalElements on a trapeze offers hop, dismount, and both passes", () => {
+  it("legalElements on a trapeze offers the full mounted repertoire", () => {
     expect(legalElements(STANDARD_ELEMENTS, fx("trapeze")).map((e) => e.name)).toEqual([
-      "hop",
       "dismount",
+      "hop",
+      "roll",
       "pass-R-index",
       "pass-L-index",
+      "pass-R-thumb",
+      "underpass-R-index",
+      "underpass-L-index",
+      "slack-pass-R-index",
+      "slack-pass-L-index",
     ]);
+  });
+
+  it("every element has a difficulty weight and a unique name", () => {
+    const names = STANDARD_ELEMENTS.map((e) => e.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const element of STANDARD_ELEMENTS) {
+      expect(element.difficulty).toBeGreaterThanOrEqual(1);
+      expect(element.difficulty).toBeLessThanOrEqual(5);
+    }
+  });
+});
+
+describe("session-5 elements", () => {
+  it("hop-back inverts hop", () => {
+    const hopped = applyElement(hopElement, fx("trapeze"));
+    const back = applyElement(hopBackElement, hopped);
+    expect(mountHash(back)).toBe(mountHash(fx("trapeze")));
+  });
+
+  it("hop-back is illegal when the yo-yo is on the first strand", () => {
+    expect(hopBackElement.precondition(fx("trapeze"))).toMatch(/first strand/);
+  });
+
+  it("roll is a topological self-edge (repeater)", () => {
+    const rolled = applyElement(rollElement, fx("trapeze"));
+    expect(mountHash(rolled)).toBe(mountHash(fx("trapeze")));
+    // …but its motion is a full swing around the supporting finger
+    const hint = rollElement.motion(fx("trapeze"))!;
+    expect(hint).toEqual({ pivot: { kind: "finger", side: "L", digit: "index" }, sweep: "over" });
+  });
+
+  it("roll is illegal on a bare string", () => {
+    expect(rollElement.precondition(fx("dead-string"))).toMatch(/mounted/);
+  });
+
+  it("underpass wraps under and lands a different mount than the pass", () => {
+    const over = applyElement(passElement({ side: "R", digit: "index" }), fx("trapeze"));
+    const under = applyElement(
+      passElement({ side: "R", digit: "index", under: true }),
+      fx("trapeze"),
+    );
+    expect(mountHash(under)).not.toBe(mountHash(over));
+    const anchors = new Map(under.anchors.map((a) => [a.id, a]));
+    const inserted = under.contacts[under.contacts.length - 2]!;
+    expect(inserted.wrap).toBe("under");
+    expect(anchors.get(inserted.anchor)!.side).toBe("R");
+    expect(passElement({ side: "R", digit: "index", under: true }).motion(fx("trapeze"))!.sweep).toBe(
+      "under",
+    );
+  });
+
+  it("slack pass is a parallel edge: same endpoints as the pass, different element", () => {
+    const swung = applyElement(passElement({ side: "R", digit: "index" }), fx("trapeze"));
+    const slacked = applyElement(
+      passElement({ side: "R", digit: "index", slack: true }),
+      fx("trapeze"),
+    );
+    expect(mountHash(slacked)).toBe(mountHash(swung)); // same mount pair…
+    expect(passElement({ side: "R", digit: "index", slack: true }).name).not.toBe(
+      passElement({ side: "R", digit: "index" }).name,
+    ); // …distinct labeled edge
+    expect(passElement({ side: "R", digit: "index", slack: true }).motion(fx("trapeze"))).toBeNull();
+  });
+
+  it("slack pass is harder than the swung pass", () => {
+    expect(passElement({ side: "R", digit: "index", slack: true }).difficulty).toBeGreaterThan(
+      passElement({ side: "R", digit: "index" }).difficulty,
+    );
   });
 });
