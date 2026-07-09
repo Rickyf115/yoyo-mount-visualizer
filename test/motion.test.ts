@@ -125,11 +125,19 @@ describe("layoutPins", () => {
     expect(pins[pins.length - 1]!.kind).toBe("axle");
     const indices = pins.map((p) => p.index);
     expect([...indices].sort((a, b) => a - b)).toEqual(indices);
-    // wraps hold entry/apex/exit: the finger contact contributes 3 pins
-    expect(pins.filter((p) => p.kind === "finger").length).toBe(3);
+    // wraps pin only their apex (tangent-point pins could sit on the wrong
+    // side of the finger and pop the string over/under); collision shapes
+    // the flanks
+    const fingerPins = pins.filter((p) => p.kind === "finger");
+    expect(fingerPins.length).toBe(1);
+    const rigCenter = anchorContactCenter(
+      rig,
+      trapeze.anchors.find((a) => a.id === "nth-index")!,
+    );
+    expect(fingerPins[0]!.position[1]).toBeGreaterThan(rigCenter[1]); // apex above the finger axis
     // hand pins carry their side so they can follow gliding hands
     expect(pins[0]!.side).toBe("R");
-    expect(pins.find((p) => p.kind === "finger")!.side).toBe("L");
+    expect(fingerPins[0]!.side).toBe("L");
   });
 });
 

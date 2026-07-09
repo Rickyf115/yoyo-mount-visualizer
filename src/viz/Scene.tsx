@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type ComponentRef } from "react";
 import { CatmullRomCurve3, Mesh, Quaternion, TubeGeometry, Vector3 } from "three";
 import type { MotionHint } from "../core/elements.js";
-import type { Mount } from "../core/schema.js";
+import type { Anchor, Mount } from "../core/schema.js";
 import { fitLayout, type YoYoPose } from "./layout.js";
 import {
   commonContacts,
@@ -14,6 +14,7 @@ import {
 } from "./motion.js";
 import {
   FINGER_RADIUS,
+  anchorFinger,
   lerpRig,
   type FingerPose,
   type HandPose,
@@ -136,14 +137,35 @@ function MorphString({ points }: { points: Vector3[] }) {
   );
 }
 
-/** All hand geometry as rope colliders. */
-function ropeColliders(rig: Rig): Capsule[] {
+/**
+ * Rope colliders: only the fingers the string actually interacts with — the
+ * contact anchors of both topologies plus the swing pivot. Colliding with
+ * the whole hand made dragged string snag on palms and uninvolved fingers,
+ * wrapping the hand and then popping to the finger when the pins engaged.
+ */
+function ropeColliders(rig: Rig, mounts: Mount[], hint: MotionHint | null): Capsule[] {
   const capsules: Capsule[] = [];
-  for (const hand of Object.values(rig.hands)) {
-    for (const finger of [...Object.values(hand.digits), hand.thumb]) {
-      capsules.push({ a: finger.base, b: finger.tip, radius: FINGER_RADIUS + STRING_RADIUS });
+  const seen = new Set<string>();
+  const addFinger = (anchor: Anchor) => {
+    const key = `${anchor.kind}:${anchor.side}:${anchor.digit ?? "-"}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const finger = anchorFinger(rig, anchor);
+    capsules.push({ a: finger.base, b: finger.tip, radius: FINGER_RADIUS + STRING_RADIUS });
+  };
+  for (const mount of mounts) {
+    for (const anchor of mount.anchors) {
+      if (anchor.kind === "finger" || anchor.kind === "thumb" || anchor.kind === "loop") {
+        addFinger(anchor);
+      }
     }
-    capsules.push({ a: hand.palm, b: hand.palm, radius: 0.055 + STRING_RADIUS });
+  }
+  if (hint) {
+    addFinger(
+      hint.pivot.kind === "finger"
+        ? { id: "pivot", kind: "finger", side: hint.pivot.side, digit: hint.pivot.digit! }
+        : { id: "pivot", kind: hint.pivot.kind, side: hint.pivot.side },
+    );
   }
   return capsules;
 }
@@ -209,10 +231,10 @@ export function Scene({ mount, target, hint = null, t = 0, physics = true, epoch
   const rig: Rig = targetFitted ? lerpRig(fitted.rig, targetFitted.rig, k) : fitted.rig;
   const layout = fitted.layout;
   const targetLayout = targetFitted?.layout ?? null;
-  const colliders = ropeColliders(rig);
+  const colliders = ropeColliders(rig, target ? [mount, target] : [mount], hint);
 
   // The yo-yo swings along the element's arc; the string is pinned to it.
-  const path = targetLayout ? transitionPath(hint, rig, layout, targetLayout) : null;
+  const path = targetLayout ? transitionPath(hint, rig, layout, targetLayout, mount.spin) : null;
   const yoyoCenter = path ? path(k) : layout.yoyo.center;
   const yoyo: YoYoPose = { center: yoyoCenter, axis: rig.planeNormal };
 
